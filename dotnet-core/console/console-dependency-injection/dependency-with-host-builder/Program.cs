@@ -1,4 +1,5 @@
 ﻿using Dependency.With.Host.Builder;
+using Dependency.With.Host.Builder.Extensions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -51,12 +52,16 @@ try
                 // setup dependencies
                 services.AddOptions<AppOptions>().BindConfiguration(nameof(AppOptions));
                 services.AddSingleton<MyService>();
+                services.AddSingleton<ConsoleRunner>();
             }
         );
     // build our HostBuilder to IHost
     var host = hostBuilder.Build();
 
-    await AppConsoleRunner.RunAsync(host.Services);
+    // run our console app
+    await host.ExecuteConsoleRunner();
+    // Or
+    // await AppConsoleRunner.RunAsync(host.Services);
 }
 catch (Exception ex)
 {
