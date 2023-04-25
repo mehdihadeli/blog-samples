@@ -1,4 +1,4 @@
-namespace PublisherConfirm.Contracts;
+namespace PublisherConfirmBatchSync.Contracts;
 
 public class Metadata : Dictionary<string, object?>, IMetadata
 {

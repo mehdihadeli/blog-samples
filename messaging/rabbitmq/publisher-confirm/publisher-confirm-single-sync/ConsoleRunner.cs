@@ -1,9 +1,9 @@
 using AutoBogus;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using PublisherConfirm.Contracts;
+using PublisherConfirmSingleSync.Contracts;
 
-namespace PublisherConfirm;
+namespace PublisherConfirmSingleSync;
 
 public class ConsoleRunnerWorker : IHostedService
 {

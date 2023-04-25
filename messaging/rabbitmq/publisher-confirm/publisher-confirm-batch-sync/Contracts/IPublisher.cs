@@ -1,4 +1,4 @@
-namespace PublisherConfirm.Contracts;
+namespace PublisherConfirmBatchSync.Contracts;
 
 public interface IPublisher
 {

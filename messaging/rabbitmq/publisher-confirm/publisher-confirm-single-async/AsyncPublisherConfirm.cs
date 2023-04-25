@@ -5,24 +5,18 @@ using Humanizer;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
-using PublisherConfirm.Contracts;
+using PublisherConfirmAsync.Contracts;
 using RabbitMQ.Client;
 
-namespace PublisherConfirm;
-
-// https://github.com/rabbitmq/rabbitmq-tutorials/blob/main/dotnet/PublisherConfirms/PublisherConfirms.cs
-// https://www.rabbitmq.com/confirms.html#publisher-confirms
-// https://www.rabbitmq.com/tutorials/tutorial-seven-dotnet.html
-// https://enterprisecraftsmanship.com/posts/which-collection-interface-to-use/
-
-public class Publisher : IPublisher
+namespace PublisherConfirmAsync;
+public class AsyncPublisherConfirm : IPublisher
 {
-    private readonly ILogger<Publisher> _logger;
+    private readonly ILogger<AsyncPublisherConfirm> _logger;
     private readonly RabbitMqOptions _rabbitmqOptions;
     private readonly ConcurrentDictionary<ulong, EnvelopMessage> _outstandingConfirms = new();
     private readonly ConcurrentQueue<EnvelopMessage> _republishQueue = new();
 
-    public Publisher(IOptions<RabbitMqOptions> rabbitmqOptions, ILogger<Publisher> logger)
+    public AsyncPublisherConfirm(IOptions<RabbitMqOptions> rabbitmqOptions, ILogger<AsyncPublisherConfirm> logger)
     {
         _logger = logger;
         _rabbitmqOptions = rabbitmqOptions.Value;
@@ -67,7 +61,7 @@ public class Publisher : IPublisher
                     );
 
                     var messageBody = JsonConvert.SerializeObject(envelopMessage?.Message);
-                    Console.WriteLine(
+                    _logger.LogInformation(
                         $"Message with body {messageBody} has been ack-ed. Sequence number: {ea.DeliveryTag}, multiple: {ea.Multiple}"
                     );
 
@@ -81,7 +75,7 @@ public class Publisher : IPublisher
                         out EnvelopMessage? envelopMessage
                     );
                     var messageBody = JsonConvert.SerializeObject(envelopMessage?.Message);
-                    Console.WriteLine(
+                    _logger.LogInformation(
                         $"Message with body {messageBody} has been nack-ed. Sequence number: {ea.DeliveryTag}, multiple: {ea.Multiple}"
                     );
 
@@ -119,7 +113,7 @@ public class Publisher : IPublisher
                 );
 
                 var endTime = Stopwatch.GetTimestamp();
-                Console.WriteLine(
+                _logger.LogInformation(
                     $"Published {list.Count} messages and handled confirm asynchronously {Stopwatch.GetElapsedTime(startTime, endTime).TotalMilliseconds} ms"
                 );
             }

@@ -1,4 +1,4 @@
-namespace PublisherConfirm;
+namespace PublisherConfirmBatchSync;
 
 public class RabbitMqOptions
 {

@@ -1,4 +1,4 @@
-namespace PublisherConfirm.Contracts;
+namespace PublisherConfirmSingleSync.Contracts;
 
 public class EnvelopMessage
 {
