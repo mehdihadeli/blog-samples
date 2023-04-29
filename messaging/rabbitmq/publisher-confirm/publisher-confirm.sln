@@ -9,6 +9,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PublisherConfirmAsync", "pu
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PublisherConfirmBatchSync", "publisher-confirm-batch-sync\PublisherConfirmBatchSync.csproj", "{86E9AF28-7697-418C-8303-C3897ECB110E}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PublisherConfirmBatchSync2", "publisher-confirm-batch-sync2\PublisherConfirmBatchSync2.csproj", "{B1D29155-7B65-4A8F-A9B7-A3F90E6C39B8}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PublisherConfirmBatchAsync", "publisher-confirm-batch-async\PublisherConfirmBatchAsync.csproj", "{0F6B57D3-52AE-4162-865B-7E4AB8A756D7}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -30,5 +34,13 @@ Global
 		{86E9AF28-7697-418C-8303-C3897ECB110E}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{86E9AF28-7697-418C-8303-C3897ECB110E}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{86E9AF28-7697-418C-8303-C3897ECB110E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B1D29155-7B65-4A8F-A9B7-A3F90E6C39B8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B1D29155-7B65-4A8F-A9B7-A3F90E6C39B8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B1D29155-7B65-4A8F-A9B7-A3F90E6C39B8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B1D29155-7B65-4A8F-A9B7-A3F90E6C39B8}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0F6B57D3-52AE-4162-865B-7E4AB8A756D7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0F6B57D3-52AE-4162-865B-7E4AB8A756D7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0F6B57D3-52AE-4162-865B-7E4AB8A756D7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0F6B57D3-52AE-4162-865B-7E4AB8A756D7}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

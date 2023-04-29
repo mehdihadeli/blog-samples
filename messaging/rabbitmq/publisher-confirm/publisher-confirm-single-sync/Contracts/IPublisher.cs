@@ -4,9 +4,7 @@ public interface IPublisher
 {
 	int TimeOut { get; set; }
 
-	Task PublishAsync<T>(T message)
-	where T : EnvelopMessage;
+	Task PublishAsync(EnvelopMessage message);
 
-	Task PublishAsync<T>(IEnumerable<T> envelopMessages)
-	where T : EnvelopMessage;
+	Task PublishAsync(IEnumerable<EnvelopMessage> messages);
 }

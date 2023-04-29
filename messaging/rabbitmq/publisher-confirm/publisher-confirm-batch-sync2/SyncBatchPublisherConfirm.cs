@@ -80,58 +80,26 @@ public class SyncBatchPublisherConfirm : IPublisher
             RemovedConfirmedMessage(ea.DeliveryTag, ea.Multiple);
         };
 
-        var batchChunk = 0;
         var messageList = envelopMessages.ToList();
+        Queue<EnvelopMessage> batchQueue = new Queue<EnvelopMessage>();
+        ulong currentSequenceNumber = channel.NextPublishSeqNo; // 1
 
         foreach (var envelopMessage in messageList)
         {
-            channel.QueueDeclare(
-                queue: envelopMessage.Message.GetType().Name.Underscore(),
-                durable: true,
-                exclusive: false,
-                autoDelete: false,
-                arguments: null
-            );
-
-            var properties = channel.CreateBasicProperties();
-            properties.Persistent = true;
-            properties.Headers = envelopMessage.Metadata;
-            properties.ContentType = "application/json";
-            properties.Type = TypeMapper.GetTypeName(envelopMessage.Message.GetType());
-            properties.MessageId = envelopMessage.Message.MessageId.ToString();
-
-            var currentSequenceNumber = channel.NextPublishSeqNo;
-
-            _messagesDeliveryTagsDictionary.TryAdd(currentSequenceNumber, envelopMessage);
-
-            // After publishing publish message sequence number will be incremented
-            channel.BasicPublish(
-                exchange: string.Empty,
-                routingKey: envelopMessage.Message.GetType().Name.Underscore(),
-                basicProperties: properties,
-                body: Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(envelopMessage.Message))
-            );
-
-            batchChunk++;
-            var nextSequenceNumberAfterPublish = channel.NextPublishSeqNo;
-
-            _logger.LogInformation(
-                $"message with messageId: {
-					envelopMessage.Message.MessageId
-				} published, and current SequenceNumber is: {
-					currentSequenceNumber
-				}, Next SequenceNumber after publishing is: {
-					nextSequenceNumberAfterPublish
-				}."
-            );
+            batchQueue.Enqueue(envelopMessage);
 
             if (
-                batchChunk == BatchSize
-                || (batchChunk != BatchSize && (int)currentSequenceNumber == messageList.Count)
+                batchQueue.Count == BatchSize
+                || (
+                    batchQueue.Count != BatchSize
+                    && ((batchQueue.Count - 1) + (int)currentSequenceNumber == messageList.Count)
+                )
             )
             {
-                channel.WaitForConfirmsOrDie(TimeSpan.FromSeconds(5));
-                batchChunk = 0;
+                currentSequenceNumber = PublishBatch(channel, batchQueue, currentSequenceNumber);
+                channel.WaitForConfirmsOrDie(TimeSpan.FromSeconds(50));
+
+                batchQueue = new Queue<EnvelopMessage>();
             }
         }
 
@@ -148,6 +116,53 @@ public class SyncBatchPublisherConfirm : IPublisher
 				Stopwatch.GetElapsedTime(startTime, endTime).TotalMilliseconds
 			} ms"
         );
+    }
+
+    private ulong PublishBatch(
+        IModel channel,
+        IEnumerable<EnvelopMessage> envelopMessages,
+        ulong currentSequenceNumber = 1
+    )
+    {
+        // Create a batch of messages
+        var batch = channel.CreateBasicPublishBatch();
+        var batchMessages = envelopMessages.ToList();
+        foreach (var envelope in batchMessages)
+        {
+            channel.QueueDeclare(
+                queue: envelope.Message.GetType().Name.Underscore(),
+                durable: true,
+                exclusive: false,
+                autoDelete: false,
+                arguments: null
+            );
+
+            var properties = channel.CreateBasicProperties();
+            properties.Persistent = true;
+            properties.Headers = envelope.Metadata;
+            properties.ContentType = "application/json";
+            properties.Type = TypeMapper.GetTypeName(envelope.Message.GetType());
+            properties.MessageId = envelope.Message.MessageId.ToString();
+
+            var body = new ReadOnlyMemory<byte>(
+                Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(envelope.Message))
+            );
+
+            batch.Add(
+                exchange: string.Empty,
+                routingKey: envelope.Message.GetType().Name.Underscore(),
+                mandatory: true,
+                properties: properties,
+                body: body
+            );
+
+            _messagesDeliveryTagsDictionary.TryAdd(currentSequenceNumber++, envelope);
+        }
+
+        // Publish the batch of messages in a single transaction, After publishing publish messages sequence number will be incremented. internally will assign `NextPublishSeqNo` for each message and them to pendingDeliveryTags collection
+        batch.Publish();
+
+        return channel.NextPublishSeqNo;
     }
 
     private void RemovedConfirmedMessage(ulong sequenceNumber, bool multiple)

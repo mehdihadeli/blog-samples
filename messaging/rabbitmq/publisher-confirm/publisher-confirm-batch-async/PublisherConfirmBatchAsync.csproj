@@ -3,10 +3,10 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net7.0</TargetFramework>
-    <RootNamespace>PublisherConfirmBatchSync</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <AssemblyName>PublisherConfirmBatchSync</AssemblyName>
+    <AssemblyName>PublisherConfirmBatchAsync</AssemblyName>
+    <RootNamespace>PublisherConfirmBatchAsync</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>

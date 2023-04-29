@@ -5,22 +5,22 @@ using Humanizer;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
-using PublisherConfirmAsync.Contracts;
+using PublisherConfirmBatchAsync.Contracts;
 using RabbitMQ.Client;
 
-namespace PublisherConfirmAsync;
+namespace PublisherConfirmBatchAsync;
 
-public class AsyncPublisherConfirm : IPublisher
+public class PublisherConfirmBatchAsync : IPublisher
 {
-    private readonly ILogger<AsyncPublisherConfirm> _logger;
+    private readonly ILogger<PublisherConfirmBatchAsync> _logger;
     private readonly RabbitMqOptions _rabbitmqOptions;
 
     private readonly ConcurrentDictionary<ulong, EnvelopMessage> _messagesDeliveryTagsDictionary =
         new();
 
-    public AsyncPublisherConfirm(
+    public PublisherConfirmBatchAsync(
         IOptions<RabbitMqOptions> rabbitmqOptions,
-        ILogger<AsyncPublisherConfirm> logger
+        ILogger<PublisherConfirmBatchAsync> logger
     )
     {
         _logger = logger;
@@ -28,6 +28,7 @@ public class AsyncPublisherConfirm : IPublisher
     }
 
     public int TimeOut { get; set; } = 60;
+    public int BatchSize { get; set; } = 100;
 
     public async Task PublishAsync(EnvelopMessage message)
     {
@@ -92,46 +93,27 @@ public class AsyncPublisherConfirm : IPublisher
             RemovedConfirmedMessage(ea.DeliveryTag, ea.Multiple);
         };
 
-        var list = envelopMessages.ToList();
-        foreach (var envelopMessage in list)
+        var messageList = envelopMessages.ToList();
+        Queue<EnvelopMessage> batchQueue = new Queue<EnvelopMessage>();
+        ulong currentSequenceNumber = channel.NextPublishSeqNo; // 1
+
+        foreach (var envelopMessage in messageList)
         {
-            channel.QueueDeclare(
-                queue: envelopMessage.Message.GetType().Name.Underscore(),
-                durable: true,
-                exclusive: false,
-                autoDelete: false,
-                arguments: null
-            );
+            batchQueue.Enqueue(envelopMessage);
 
-            var properties = channel.CreateBasicProperties();
-            properties.Persistent = true;
-            properties.Headers = envelopMessage.Metadata;
-            properties.ContentType = "application/json";
-            properties.Type = TypeMapper.GetTypeName(envelopMessage.Message.GetType());
-            properties.MessageId = envelopMessage.Message.MessageId.ToString();
+            if (
+                batchQueue.Count == BatchSize
+                || (
+                    batchQueue.Count != BatchSize
+                    && ((batchQueue.Count - 1) + (int)currentSequenceNumber == messageList.Count)
+                )
+            )
+            {
+                currentSequenceNumber = PublishBatch(channel, batchQueue, currentSequenceNumber);
+                channel.WaitForConfirmsOrDie(TimeSpan.FromSeconds(50));
 
-            var currentSequenceNumber = channel.NextPublishSeqNo;
-
-            _messagesDeliveryTagsDictionary.TryAdd(currentSequenceNumber, envelopMessage);
-
-            channel.BasicPublish(
-                exchange: string.Empty,
-                routingKey: envelopMessage.Message.GetType().Name.Underscore(),
-                basicProperties: null,
-                body: Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(envelopMessage.Message))
-            );
-
-            var nextSequenceNumberAfterPublish = channel.NextPublishSeqNo;
-
-            _logger.LogInformation(
-                $"message with messageId: {
-					envelopMessage.Message.MessageId
-				} published, and current SequenceNumber is: {
-					currentSequenceNumber
-				}, next SequenceNumber after publishing is: {
-					nextSequenceNumberAfterPublish
-				}."
-            );
+                batchQueue = new Queue<EnvelopMessage>();
+            }
         }
 
         await WaitUntilConditionMet(
@@ -148,11 +130,58 @@ public class AsyncPublisherConfirm : IPublisher
         var endTime = Stopwatch.GetTimestamp();
         _logger.LogInformation(
             $"Published {
-                list.Count
+				messageList.Count
 			} messages and handled confirm asynchronously {
 				Stopwatch.GetElapsedTime(startTime, endTime).TotalMilliseconds
 			} ms"
         );
+    }
+
+    private ulong PublishBatch(
+        IModel channel,
+        IEnumerable<EnvelopMessage> envelopMessages,
+        ulong currentSequenceNumber = 1
+    )
+    {
+        // Create a batch of messages
+        var batch = channel.CreateBasicPublishBatch();
+        var batchMessages = envelopMessages.ToList();
+        foreach (var envelope in batchMessages)
+        {
+            channel.QueueDeclare(
+                queue: envelope.Message.GetType().Name.Underscore(),
+                durable: true,
+                exclusive: false,
+                autoDelete: false,
+                arguments: null
+            );
+
+            var properties = channel.CreateBasicProperties();
+            properties.Persistent = true;
+            properties.Headers = envelope.Metadata;
+            properties.ContentType = "application/json";
+            properties.Type = TypeMapper.GetTypeName(envelope.Message.GetType());
+            properties.MessageId = envelope.Message.MessageId.ToString();
+
+            var body = new ReadOnlyMemory<byte>(
+                Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(envelope.Message))
+            );
+
+            batch.Add(
+                exchange: string.Empty,
+                routingKey: envelope.Message.GetType().Name.Underscore(),
+                mandatory: true,
+                properties: properties,
+                body: body
+            );
+
+            _messagesDeliveryTagsDictionary.TryAdd(currentSequenceNumber++, envelope);
+        }
+
+        // Publish the batch of messages in a single transaction, After publishing publish messages sequence number will be incremented. internally will assign `NextPublishSeqNo` for each message and them to pendingDeliveryTags collection
+        batch.Publish();
+
+        return channel.NextPublishSeqNo;
     }
 
     private void RemovedConfirmedMessage(ulong sequenceNumber, bool multiple)
