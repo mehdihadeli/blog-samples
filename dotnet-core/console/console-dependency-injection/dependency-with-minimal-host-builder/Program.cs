@@ -10,6 +10,9 @@ Log.Logger = new LoggerConfiguration().MinimumLevel
 	.WriteTo.Console()
 	.CreateBootstrapLogger();
 
+// Load some envs like `ASPNETCORE_ENVIRONMENT` for accessing in `HostingEnvironment`, default is Production
+DotNetEnv.Env.TraversePath().Load();
+
 try
 {
 	// https://learn.microsoft.com/en-us/aspnet/core/migration/50-to-60?tabs=visual-studio#new-hosting-model

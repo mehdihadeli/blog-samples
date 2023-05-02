@@ -12,6 +12,9 @@ Log.Logger = new LoggerConfiguration().MinimumLevel
     .WriteTo.Console()
     .CreateBootstrapLogger();
 
+// Load some envs like `ASPNETCORE_ENVIRONMENT` for accessing in `HostingEnvironment`, default is Production
+DotNetEnv.Env.TraversePath().Load();
+
 try
 {
     // https://learn.microsoft.com/en-us/aspnet/core/fundamentals/host/generic-host#default-builder-settings

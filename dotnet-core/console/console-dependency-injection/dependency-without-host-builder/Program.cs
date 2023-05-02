@@ -5,6 +5,9 @@ using Microsoft.Extensions.Logging;
 using Serilog;
 using Serilog.Events;
 
+// Load some envs like `ASPNETCORE_ENVIRONMENT`
+DotNetEnv.Env.TraversePath().Load();
+
 IConfiguration configuration = new ConfigurationBuilder()
 	.AddJsonFile("appsettings.json", optional: false)
 	.Build();
