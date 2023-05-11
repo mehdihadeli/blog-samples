@@ -1,5 +1,6 @@
 ﻿using Dependency.With.Minimal.Host.Builder;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 using Serilog.Events;
@@ -36,6 +37,10 @@ try
 	// 		logging.AddDebug();
 	// 		//... some other configurations for logs
 	// 	});
+
+	var configuration = builder.Configuration;
+	var environment = builder.Environment;
+	var appOptions = configuration.GetSection("AppOptions").Get<AppOptions>();
 
 	// setup dependencies
 	builder.Services.AddSingleton<MyService>();

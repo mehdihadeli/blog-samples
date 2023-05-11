@@ -52,6 +52,10 @@ try
         .ConfigureServices(
             (hostContext, services) =>
             {
+                var configuration = hostContext.Configuration;
+                var environment = hostContext.HostingEnvironment;
+                var appOptions = configuration.GetSection("AppOptions").Get<AppOptions>();
+
                 // setup dependencies
                 services.AddOptions<AppOptions>().BindConfiguration(nameof(AppOptions));
                 services.AddSingleton<MyService>();
