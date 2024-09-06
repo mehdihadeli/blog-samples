@@ -12,8 +12,8 @@ services:
     # Getting health check logs --> docker inspect --format='{{ json .State.Health.Log}}' mongod1
     healthcheck:
       test: ["CMD", "sh", "/scripts/init-replicaset.sh"]
-      interval: 5s       # Check every 10 seconds
-      retries: 20        # Retry up to 5 times
+      interval: 5s       # Check every 5 seconds
+      retries: 20        # Retry up to 20 times
       start_period: 0s   # Wait 0 seconds before starting health checks
       timeout: 30s       # Timeout for each health check
       start_interval: 1s
