@@ -1,0 +1,52 @@
+version: "3.9"
+
+services:
+  mongod1:
+    image: mongo:latest
+    container_name: mongod1
+    ports:
+      - "${MONGOD1_PORT:-27018}:27017"
+    networks:
+      - mongo-cluster-network
+    # https://docs.docker.com/reference/compose-file/services/#healthcheck
+    # Getting health check logs --> docker inspect --format='{{ json .State.Health.Log}}' mongod1
+    healthcheck:
+      test: ["CMD", "sh", "/scripts/init-replicaset.sh"]
+      interval: 5s       # Check every 10 seconds
+      retries: 20        # Retry up to 5 times
+      start_period: 0s   # Wait 0 seconds before starting health checks
+      timeout: 30s       # Timeout for each health check
+      start_interval: 1s
+    volumes:
+      - "${DB1_DATA_DIR:-${PWD}/data/mongodb1}:/data/db"
+      - "${DB1_LOG_DIR:-${PWD}/log/mongodb1}:/var/log/mongodb"
+      - "${PWD}/scripts:/scripts"
+    command: --noauth --replSet ${REPLICA_SET_NAME:-mongo-replicaset} --bind_ip localhost,mongod1 --port 27017
+
+  mongod2:
+    image: mongo:latest
+    container_name: mongod2
+    ports:
+      - "${MONGOD2_PORT:-27019}:27017"
+    networks:
+      - mongo-cluster-network
+    volumes:
+      - "${DB2_DATA_DIR:-${PWD}/data/mongodb2}:/data/db"
+      - "${DB2_LOG_DIR:-${PWD}/log/mongodb2}:/var/log/mongodb"
+    command: --noauth --replSet ${REPLICA_SET_NAME:-mongo-replicaset} --bind_ip localhost,mongod2 --port 27017
+
+  mongod3:
+    image: mongo:latest
+    container_name: mongod3
+    ports:
+      - "${MONGOD3_PORT:-27020}:27017"
+    networks:
+      - mongo-cluster-network
+    volumes:
+      - "${DB3_DATA_DIR:-${PWD}/data/mongodb3}:/data/db"
+      - "${DB3_LOG_DIR:-${PWD}/log/mongodb3}:/var/log/mongodb"
+    command: --noauth --replSet ${REPLICA_SET_NAME:-mongo-replicaset} --bind_ip localhost,mongod3 --port 27017
+
+networks:
+  mongo-cluster-network:
+    driver: bridge

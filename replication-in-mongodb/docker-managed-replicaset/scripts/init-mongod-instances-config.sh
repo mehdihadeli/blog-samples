@@ -16,10 +16,6 @@ DB3_LOG_DIR="${PWD}/log/mongodb3"
 
 REPLICA_SET="${REPLICA_SET_NAME:-mongo-replicaset}"
 
-# Create data and log directories if they do not exist
-mkdir -p "$DB1_DATA_DIR" "$DB2_DATA_DIR" "$DB3_DATA_DIR" 
-mkdir -p "$DB1_LOG_DIR" "$DB2_LOG_DIR" "$DB3_LOG_DIR" 
-
 # Create Docker network
 NETWORK_NAME="mongo-cluster-network"
 docker network create $NETWORK_NAME || echo "Network $NETWORK_NAME already exists."
@@ -45,7 +41,6 @@ docker run -i --rm -d \
 -v "${DB2_DATA_DIR}:/data/db" \
 -v "${DB2_LOG_DIR}:/var/log/mongodb" \
 -v "${PWD}/configs:/etc/mongo" \
--v "${PWD}/scripts:/scripts" \
 mongo:latest \
 --config "/etc/mongo/mongod2.conf"  
 
@@ -56,7 +51,6 @@ docker run -i --rm -d \
 -v "${DB3_DATA_DIR}:/data/db" \
 -v "${DB3_LOG_DIR}:/var/log/mongodb" \
 -v "${PWD}/configs:/etc/mongo" \
--v "${PWD}/scripts:/scripts" \
 mongo:latest \
 --config "/etc/mongo/mongod3.conf"  
 

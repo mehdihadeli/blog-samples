@@ -16,10 +16,6 @@ DB3_LOG_DIR="${PWD}/log/mongodb3"
 
 REPLICA_SET="${REPLICA_SET_NAME:-mongo-replicaset}"
 
-# Create data and log directories if they do not exist
-mkdir -p "$DB1_DATA_DIR" "$DB2_DATA_DIR" "$DB3_DATA_DIR" 
-mkdir -p "$DB1_LOG_DIR" "$DB2_LOG_DIR" "$DB3_LOG_DIR" 
-
 # Create Docker network
 NETWORK_NAME="mongo-cluster-network"
 docker network create $NETWORK_NAME || echo "Network $NETWORK_NAME already exists."
@@ -35,7 +31,7 @@ docker run -i --rm -d \
 -v "${DB1_LOG_DIR}:/var/log/mongodb" \
 -v "${PWD}/scripts:/scripts" \
 mongo:latest \
-mongod --noauth --replSet "$REPLICA_SET" --bind_ip localhost,mongod1
+--noauth --replSet "$REPLICA_SET" --bind_ip localhost,mongod1 --port 27017
 
 docker run -i --rm -d \
 --name "mongod2" \
@@ -43,9 +39,8 @@ docker run -i --rm -d \
 -p ${DB2_PORT}:27017 \
 -v "${DB2_DATA_DIR}:/data/db" \
 -v "${DB2_LOG_DIR}:/var/log/mongodb" \
--v "${PWD}/scripts:/scripts" \
 mongo:latest \
-mongod --noauth --replSet "$REPLICA_SET" --bind_ip localhost,mongod2
+--noauth --replSet "$REPLICA_SET" --bind_ip localhost,mongod2 --port 27017
 
 docker run -i --rm -d \
 --name "mongod3" \
@@ -53,9 +48,8 @@ docker run -i --rm -d \
 -p ${DB3_PORT}:27017 \
 -v "${DB3_DATA_DIR}:/data/db" \
 -v "${DB3_LOG_DIR}:/var/log/mongodb" \
--v "${PWD}/scripts:/scripts" \
 mongo:latest \
-mongod --noauth --replSet "$REPLICA_SET" --bind_ip localhost,mongod3 
+--noauth --replSet "$REPLICA_SET" --bind_ip localhost,mongod3  --port 27017
 
 # Stream logs from all containers
 docker logs -f mongod1 &
