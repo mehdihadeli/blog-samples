@@ -19,8 +19,8 @@ public class WeatherForecastController : ControllerBase
         "Scorching",
     };
 
-    [HttpGet("weatherforecast2")]
-    public Task<ObjectResult> GetWeatherForecast2()
+    [HttpGet("return-problem")]
+    public async Task<ActionResult<WeatherForecast[]>> ReturnProblem()
     {
         var forecast = Enumerable
             .Range(1, 5)
@@ -31,15 +31,21 @@ public class WeatherForecastController : ControllerBase
             ))
             .ToArray();
 
+        if (forecast.Length > 100)
+        {
+            return forecast;
+        }
+
         // https://learn.microsoft.com/en-us/aspnet/core/web-api/?view=aspnetcore-2.2#problem-details-for-error-status-codes-3
         // it is not a run time exception but should convert to problem details - `Problem` creates problem details objects with `ProblemDetailsFactory` in `ControllerBase`, in minimal apis `Problem` method don't use factory
-        return Task.FromResult(
-            Problem(detail: "This is a bad request", statusCode: StatusCodes.Status400BadRequest)
+        return Problem(
+            detail: "This is a bad request",
+            statusCode: StatusCodes.Status400BadRequest
         );
     }
 
-    [HttpGet("weatherforecast3")]
-    public Task<ObjectResult> GetWeatherForecast3()
+    [HttpGet("throw-badrequest-exception")]
+    public async Task<ActionResult<WeatherForecast[]>> ThrowBadRequest()
     {
         throw new BadRequestException("this is a bad request");
 
@@ -52,10 +58,6 @@ public class WeatherForecastController : ControllerBase
             ))
             .ToArray();
 
-        // https://learn.microsoft.com/en-us/aspnet/core/web-api/?view=aspnetcore-2.2#problem-details-for-error-status-codes-3
-        // it is not a run time exception but should convert to problem details - `Problem` creates problem details objects with `ProblemDetailsFactory` in `ControllerBase`, in minimal apis `Problem` method don't use factory
-        return Task.FromResult(
-            Problem(detail: "This is a bad request", statusCode: StatusCodes.Status400BadRequest)
-        );
+        return forecast;
     }
 }

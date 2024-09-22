@@ -3,10 +3,10 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net8.0</TargetFramework>
-    <RootNamespace>Dependency.Without.Host.Builder</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <AssemblyName>Dependency.Without.Host.Builder</AssemblyName>
+    <AssemblyName>Dependency.With.Host.Builder</AssemblyName>
+    <RootNamespace>Dependency.With.Host.Builder</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>

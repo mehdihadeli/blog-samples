@@ -1,6 +1,8 @@
-﻿using Dependency.Without.Host.Builder;
+﻿using Dependency.With.Host.Builder;
+using Dependency.With.Host.Builder.Extensions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Serilog;
 using Serilog.Events;
 
@@ -19,30 +21,39 @@ DotNetEnv.Env.TraversePath().Load();
 
 try
 {
-    // Create service collection
-    IServiceCollection services = new ServiceCollection();
-
-    // setup logs
+    // https://learn.microsoft.com/en-us/aspnet/core/fundamentals/host/generic-host#default-builder-settings
+    var builder = Host.CreateApplicationBuilder(args);
+    
+    builder.Configuration.AddEnvironmentVariables();
+    builder.Configuration.AddCommandLine(args);
+    builder.Configuration.AddJsonFile(
+        "appsettings.json",
+        optional: true,
+        reloadOnChange: true
+    );
+        
     // https://github.com/serilog/serilog-extensions-hosting
     // https://github.com/serilog/serilog-aspnetcore#two-stage-initialization
     // Routes framework log messages through Serilog - get other sinks from top level definition
-    services.AddSerilog((sp, loggerConfiguration) =>
+    builder.Services.AddSerilog((sp, loggerConfiguration) =>
     {
-        var configuration = sp.GetRequiredService<IConfiguration>();
-        
         // The downside of initializing Serilog in top level is that services from the ASP.NET Core host, including the appsettings.json configuration and dependency injection, aren't available yet.
         // setup sinks that related to `configuration` here instead of top level serilog configuration
-        loggerConfiguration.ReadFrom.Configuration(configuration);
+        loggerConfiguration
+            .ReadFrom.Configuration(builder.Configuration);
     });
+    
+    builder.Services.AddOptions<AppOptions>().BindConfiguration(nameof(AppOptions));
+    builder.Services.AddSingleton<MyService>();
+    builder.Services.AddSingleton<ConsoleRunner>();
 
-    services.AddOptions<AppOptions>().BindConfiguration(nameof(AppOptions));
-    services.AddTransient<MyService>();
+    // build our HostApplicationBuilder to IHost
+    var host = builder.Build();
 
-    // Build service provider
-    IServiceProvider serviceProvider = services.BuildServiceProvider();
-
-    // Run the console app
-    await AppConsoleRunner.RunAsync(serviceProvider);
+    // run our console app
+    await host.ExecuteConsoleRunner();
+    // Or
+    // await AppConsoleRunner.RunAsync(host);
 }
 catch (Exception ex)
 {

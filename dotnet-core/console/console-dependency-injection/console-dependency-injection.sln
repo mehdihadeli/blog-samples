@@ -11,6 +11,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "dependency-with-minimal-hos
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "dependency-without-host-builder", "dependency-without-host-builder\dependency-without-host-builder.csproj", "{854C4BF2-F780-4ED5-942B-DE3ECC18E9BE}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "dependency-with-app-builder", "dependency-with-app-builder\dependency-with-app-builder.csproj", "{35D2CAC4-866A-43EA-86EA-76B903374269}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -36,5 +38,9 @@ Global
 		{854C4BF2-F780-4ED5-942B-DE3ECC18E9BE}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{854C4BF2-F780-4ED5-942B-DE3ECC18E9BE}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{854C4BF2-F780-4ED5-942B-DE3ECC18E9BE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{35D2CAC4-866A-43EA-86EA-76B903374269}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{35D2CAC4-866A-43EA-86EA-76B903374269}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{35D2CAC4-866A-43EA-86EA-76B903374269}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{35D2CAC4-866A-43EA-86EA-76B903374269}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

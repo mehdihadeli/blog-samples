@@ -12,19 +12,18 @@ using Microsoft.Extensions.Options;
 
 public class CustomProblemDetailsFactory : ProblemDetailsFactory
 {
-    private readonly IProblemDetailMapper _problemDetailMapper;
-    private readonly IWebHostEnvironment _webHostEnvironment;
-    private readonly ApiBehaviorOptions _options;
+    private readonly ProblemDetailsOptions _options;
+    private readonly ApiBehaviorOptions _apiBehaviorOptions;
 
     public CustomProblemDetailsFactory(
-        IOptions<ApiBehaviorOptions> options,
-        IProblemDetailMapper problemDetailMapper,
-        IWebHostEnvironment webHostEnvironment
+        IOptions<ApiBehaviorOptions> apiBehaviourOptions,
+        IOptions<ProblemDetailsOptions> options
     )
     {
-        _problemDetailMapper = problemDetailMapper;
-        _webHostEnvironment = webHostEnvironment;
-        _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
+        _options = options.Value;
+        _apiBehaviorOptions =
+            apiBehaviourOptions?.Value
+            ?? throw new ArgumentNullException(nameof(apiBehaviourOptions));
     }
 
     public override ProblemDetails CreateProblemDetails(
@@ -39,83 +38,66 @@ public class CustomProblemDetailsFactory : ProblemDetailsFactory
         IExceptionHandlerFeature? exceptionFeature =
             httpContext.Features.Get<IExceptionHandlerFeature>();
 
-        if (exceptionFeature is null)
+        var problem = exceptionFeature is { }
+            ? _options.GetProblemDetails(httpContext, exceptionFeature.Error)
+                ?? _options.MapStatusCode(httpContext)
+            : _options.MapStatusCode(httpContext);
+
+        var exception = exceptionFeature?.Error;
+
+        if (_options.IncludeExceptionDetails(httpContext, exception))
         {
-            var problem = new ProblemDetails
+            problem = new ProblemDetails
             {
-                Status = statusCode ?? 500,
-                Title = title,
-                Type = type,
-                Detail = detail,
-                Instance = instance,
-            };
-
-            ApplyProblemDetailsDefaults(httpContext, problem, (int)problem.Status);
-
-            return problem;
-        }
-
-        var exception = exceptionFeature.Error;
-
-        var problemDetails = InitializeProblemDetails(
-            httpContext,
-            statusCode,
-            title,
-            type,
-            detail,
-            instance,
-            exception
-        );
-
-        httpContext.Response.StatusCode = (int)problemDetails.Status;
-
-        ApplyProblemDetailsDefaults(httpContext, problemDetails, (int)problemDetails.Status);
-
-        return problemDetails;
-    }
-
-    private ProblemDetails InitializeProblemDetails(
-        HttpContext httpContext,
-        int? statusCode,
-        string? title,
-        string? type,
-        string? detail,
-        string? instance,
-        Exception exception
-    )
-    {
-        var (mappedStatus, mappedTitle) = _problemDetailMapper.GetMappedStatusCodes(exception);
-
-        if (_webHostEnvironment.IsProduction())
-        {
-            return new ProblemDetails
-            {
+                Title =
+                    title
+                    ?? (
+                        exception is not null
+                            ? exception.GetType().Name.Humanize(LetterCasing.Title)
+                            : problem.Title
+                    ),
+                Detail = detail ?? exception?.Message,
                 Status =
                     statusCode
-                    ?? (mappedStatus > 0 ? mappedStatus : httpContext.Response.StatusCode),
+                    ?? (problem.Status > 0 ? problem.Status : httpContext.Response.StatusCode),
+                Extensions =
+                {
+                    ["exception"] = new
+                    {
+                        Details = exception?.ToString(),
+                        Headers = httpContext.Request.Headers,
+                        Path = httpContext.Request.Path.ToString(),
+                        Endpoint = httpContext.GetEndpoint()?.ToString(),
+                        RouteValues = httpContext.Features.Get<IRouteValuesFeature>()?.RouteValues,
+                    },
+                },
+                Type = type ?? problem.Type,
+                Instance = instance ?? $"{httpContext.Request.Method} {httpContext.Request.Path}",
+            };
+        }
+        else
+        {
+            problem = new ProblemDetails
+            {
+                Title =
+                    title
+                    ?? (
+                        exception is not null
+                            ? exception.GetType().Name.Humanize(LetterCasing.Title)
+                            : problem.Title
+                    ),
+                Status =
+                    statusCode
+                    ?? (problem.Status > 0 ? problem.Status : httpContext.Response.StatusCode),
+                Type = type ?? problem.Type,
             };
         }
 
-        return new ProblemDetails
-        {
-            Title = title ?? mappedTitle ?? exception.GetType().Name.Humanize(LetterCasing.Title),
-            Detail = detail ?? exception.Message,
-            Status =
-                statusCode ?? (mappedStatus > 0 ? mappedStatus : httpContext.Response.StatusCode),
-            Extensions =
-            {
-                ["exception"] = new
-                {
-                    Details = exception.ToString(),
-                    Headers = httpContext.Request.Headers,
-                    Path = httpContext.Request.Path.ToString(),
-                    Endpoint = httpContext.GetEndpoint()?.ToString(),
-                    RouteValues = httpContext.Features.Get<IRouteValuesFeature>()?.RouteValues,
-                },
-            },
-            Type = type,
-            Instance = instance ?? $"{httpContext.Request.Method} {httpContext.Request.Path}",
-        };
+        httpContext.Response.StatusCode = (int)problem.Status;
+
+        ApplyProblemDetailsDefaults(httpContext, problem, (int)problem.Status);
+
+        return problem;
     }
 
     public override ValidationProblemDetails CreateValidationProblemDetails(
@@ -160,7 +142,7 @@ public class CustomProblemDetailsFactory : ProblemDetailsFactory
         int statusCode
     )
     {
-        if (_options.ClientErrorMapping.TryGetValue(statusCode, out var clientErrorData))
+        if (_apiBehaviorOptions.ClientErrorMapping.TryGetValue(statusCode, out var clientErrorData))
         {
             problemDetails.Title ??= clientErrorData.Title;
             problemDetails.Type ??= clientErrorData.Link;

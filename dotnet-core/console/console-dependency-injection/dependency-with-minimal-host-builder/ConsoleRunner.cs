@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Options;
 
-namespace Dependency.With.Host.Builder;
+namespace Dependency.With.Minimal.Host.Builder;
 
 public class ConsoleRunner(IOptions<AppOptions> options, MyService service)
 {

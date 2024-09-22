@@ -3,9 +3,13 @@ using Serilog;
 using Serilog.Events;
 
 // https://github.com/serilog/serilog-aspnetcore#two-stage-initialization
-Log.Logger = new LoggerConfiguration().MinimumLevel
-	.Override("Microsoft", LogEventLevel.Information)
-	.WriteTo.Console()
+// https://github.com/serilog/serilog-extensions-hosting
+Log.Logger = new LoggerConfiguration()
+	.MinimumLevel.Override("Microsoft", LogEventLevel.Information)
+	.Enrich.FromLogContext()
+	.WriteTo.Console(
+		outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} {Level} - {Message:lj}{NewLine}{Exception}"
+	)
 	.CreateBootstrapLogger();
 
 // Load some envs like `ASPNETCORE_ENVIRONMENT` for accessing in `HostingEnvironment`, default is Production
@@ -14,45 +18,35 @@ DotNetEnv.Env.TraversePath().Load();
 try
 {
 	// https://learn.microsoft.com/en-us/aspnet/core/fundamentals/host/generic-host#default-builder-settings
-	var hostBuilder = Host.CreateDefaultBuilder(args);
+	var builder = Host.CreateApplicationBuilder(args);
+    
+	builder.Configuration.AddEnvironmentVariables();
+	builder.Configuration.AddCommandLine(args);
+	builder.Configuration.AddJsonFile(
+		"appsettings.json",
+		optional: true,
+		reloadOnChange: true
+	);
+        
+	// https://github.com/serilog/serilog-extensions-hosting
+	// https://github.com/serilog/serilog-aspnetcore#two-stage-initialization
+	// Routes framework log messages through Serilog - get other sinks from top level definition
+	builder.Services.AddSerilog((sp, loggerConfiguration) =>
+	{
+		// The downside of initializing Serilog in top level is that services from the ASP.NET Core host, including the appsettings.json configuration and dependency injection, aren't available yet.
+		// setup sinks that related to `configuration` here instead of top level serilog configuration
+		loggerConfiguration
+			.ReadFrom.Configuration(builder.Configuration);
+	});
+    
+	builder.Services.AddOptions<AppOptions>().BindConfiguration(nameof(AppOptions));
+	builder.Services.AddSingleton<MyService>();
+	builder.Services.AddHostedService<AppConsoleWorkerRunner>();
 
-	hostBuilder
-		.UseSerilog(
-			(context, sp, loggerConfiguration) =>
-			{
-				loggerConfiguration.Enrich
-					.WithProperty("Application", context.HostingEnvironment.ApplicationName)
-					.ReadFrom.Configuration(context.Configuration, sectionName: "Serilog")
-					.WriteTo.Console(
-						outputTemplate:
-						"{Timestamp:yyyy-MM-dd HH:mm:ss.fff} {Level} - {Message:lj}{NewLine}{Exception}");
-			})
-		// setup configurations - CreateDefaultBuilder do this for us, but we can override that configuration
-		.ConfigureAppConfiguration(
-			configurationBuilder =>
-			{
-				configurationBuilder.AddJsonFile(
-					"appsettings.json",
-					optional: true,
-					reloadOnChange: true);
-				configurationBuilder.AddEnvironmentVariables();
-				configurationBuilder.AddCommandLine(args);
-			})
-		.ConfigureServices(
-			(hostContext, services) =>
-			{
-				var configuration = hostContext.Configuration;
-				var environment = hostContext.HostingEnvironment;
-				var appOptions = configuration.GetSection("AppOptions").Get<AppOptions>();
-
-				// setup dependencies
-				services.AddOptions<AppOptions>().BindConfiguration(nameof(AppOptions));
-				services.AddSingleton<MyService>();
-				services.AddHostedService<AppConsoleWorkerRunner>();
-			});
-
-	// internally do `Build().RunAsync()`
-	await hostBuilder.RunConsoleAsync();
+	var app = builder.Build();
+	
+	// Will run all workers
+	await app.RunAsync();
 }
 catch (Exception ex)
 {

@@ -52,10 +52,11 @@ else
     // By default `ExceptionHandlerMiddlewareImpl` middleware register original exceptions with `IExceptionHandlerFeature` feature, we don't have this in `DeveloperExceptionPageMiddleware` and we should handle it with a middleware like `CaptureExceptionMiddleware`
     // Just for handling exceptions in production mode
     // https://github.com/dotnet/aspnetcore/pull/26567
-    // handle exceptional cases with summerize problem details
-    app.UseExceptionHandler(
-        options: new ExceptionHandlerOptions { AllowStatusCode404Response = true }
-    );
+    // handle exceptional cases with summarize problem details
+    // The RequestDelegate(HttpContext) or ExceptionHandler property that will handle the exception. If this is not explicitly provided, the subsequent middleware pipeline will be used by default
+    // https://github.com/dotnet/aspnetcore/blob/fc713dd1b0b3161ab819aaadfa0e8d69f297b1c5/src/Middleware/Diagnostics/src/ExceptionHandler/ExceptionHandlerMiddlewareImpl.cs#L57
+    // if we don't have `ExceptionHandler` or `ExceptionHandlingPath` or `problemDetailsService` we get `ExceptionHandlerOptions_NotConfiguredCorrectly` exception. 
+    app.UseExceptionHandler();
 }
 
 // runs for none exceptional cases - 400-600
