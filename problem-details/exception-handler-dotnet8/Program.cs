@@ -14,6 +14,9 @@ var app = builder.Build();
 
 app.UseExceptionHandler(opt => { });
 
+// Handles non-exceptional status codes (e.g., 404 from Results.NotFound(), 401 from unauthorized access) and returns standardized ProblemDetails responses
+app.UseStatusCodePages();
+
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {

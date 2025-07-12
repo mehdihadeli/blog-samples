@@ -32,6 +32,9 @@ var app = builder.Build();
 // https://github.com/dotnet/aspnetcore/pull/26567
 app.UseExceptionHandler(opt => { });
 
+// Handles non-exceptional status codes (e.g., 404 from Results.NotFound(), 401 from unauthorized access) and returns standardized ProblemDetails responses
+app.UseStatusCodePages();
+
 if (app.Environment.IsDevelopment())
 {
     // // https://github.com/dotnet/aspnetcore/issues/4765
