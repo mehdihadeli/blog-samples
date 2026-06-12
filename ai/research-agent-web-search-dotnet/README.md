@@ -19,7 +19,6 @@ Optional arguments:
 
 ```bash
 dotnet run --project ./src/ResearchAgent.Sample -- --topic "research agent web search in .NET" --max-iterations 3
-dotnet run --project ./src/ResearchAgent.Sample -- --topic "agent review workflow" --existing-posts ./sample-data/existing-posts.json --search-index ./sample-data/search-index.json
 ```
 
 ## What it demonstrates

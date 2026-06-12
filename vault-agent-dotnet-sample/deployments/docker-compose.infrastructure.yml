@@ -1,0 +1,87 @@
+name: vault-agent-dotnet-sample-infrastructure
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      - POSTGRES_USER=root
+      - POSTGRES_PASSWORD=rootpassword
+      - POSTGRES_DB=postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U root"]
+      interval: 5s
+    restart: unless-stopped
+    networks:
+      - vault-net
+    ports:
+      - "5432:5432"
+
+  rabbitmq:
+    image: rabbitmq:management-alpine
+    environment:
+      - RABBITMQ_DEFAULT_USER=admin
+      - RABBITMQ_DEFAULT_PASS=admin
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 5s
+    restart: unless-stopped
+    networks:
+      - vault-net
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  vault:
+    image: hashicorp/vault:latest
+    cap_add:
+      - IPC_LOCK
+    environment:
+      - VAULT_DEV_ROOT_TOKEN_ID=dev-only-token
+      - VAULT_ADDR=http://0.0.0.0:8200
+    entrypoint: vault server -dev -dev-root-token-id=dev-only-token -dev-listen-address=0.0.0.0:8200
+    restart: unless-stopped
+    networks:
+      - vault-net
+    ports:
+      - "8200:8200"
+
+  vault-init:
+    image: hashicorp/vault:latest
+    user: root  # Temporarily root just to fix ownership
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      vault:
+        condition: service_started
+    environment:
+      - VAULT_ADDR=http://vault:8200  # Tells CLI WHERE the server is which is `vault` container
+      - VAULT_TOKEN=dev-only-token
+    volumes:
+      - ./infrastructure/vault/configure.sh:/configure.sh
+      - vault_credentials:/vault/credentials
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        /configure.sh
+        echo "Configuration complete. Keeping container alive for debugging..."
+        sleep 3600  # Keep alive for 1 hour
+    networks:
+      - vault-net
+
+volumes:
+  postgres_data:
+  vault_credentials:
+    name: vault_approle_creds
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+
+networks:
+  vault-net:
+    name: vault_network

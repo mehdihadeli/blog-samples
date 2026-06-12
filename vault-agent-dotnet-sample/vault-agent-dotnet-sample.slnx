@@ -1,0 +1,35 @@
+<Solution>
+  <Folder Name="/deployments/">
+    <File Path="deployments/docker-compose.apps.dev.yml" />
+    <File Path="deployments/docker-compose.apps.yml" />
+    <File Path="deployments/docker-compose.infrastructure.yml" />
+  </Folder>
+  <Folder Name="/deployments/agent-config/" />
+  <Folder Name="/deployments/agent-config/orders/">
+    <File Path="deployments/agent-config/orders/appsettings.ctmpl" />
+    <File Path="deployments/agent-config/orders/vault-agent.hcl" />
+  </Folder>
+  <Folder Name="/deployments/agent-config/users/">
+    <File Path="deployments/agent-config/users/appsettings.ctmpl" />
+    <File Path="deployments/agent-config/users/vault-agent.hcl" />
+  </Folder>
+  <Folder Name="/deployments/infrastructure/" />
+  <Folder Name="/deployments/infrastructure/vault/">
+    <File Path="deployments/infrastructure/vault/configure.sh" />
+  </Folder>
+  <Folder Name="/services/">
+    <Project Path="services/Contracts/Contracts.csproj" />
+    <Project Path="services/OrdersApi/OrdersApi.csproj" />
+    <Project Path="services/UsersApi/UsersApi.csproj" />
+  </Folder>
+  <Folder Name="/solution files/">
+    <File Path=".dockerignore" />
+    <File Path=".editorconfig" />
+    <File Path=".gitattributes" />
+    <File Path=".gitignore" />
+    <File Path="dotnet-tools.json" />
+    <File Path="global.json" />
+    <File Path="makefile" />
+    <File Path="README.md" />
+  </Folder>
+</Solution>

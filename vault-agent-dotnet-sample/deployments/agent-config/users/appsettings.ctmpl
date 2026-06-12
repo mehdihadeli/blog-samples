@@ -1,0 +1,11 @@
+{
+  "ConnectionStrings": {
+    "Default": "Host=postgres;Port=5432;Database=users_db;Username={{ with secret "database/creds/users-role" }}{{ .Data.username }}{{ end }};Password={{ with secret "database/creds/users-role" }}{{ .Data.password }}{{ end }}"
+  },
+  "RabbitMQ": {
+    "Host": "rabbitmq",
+    "Port": "5672",
+    "Username": "{{ with secret "rabbitmq/creds/users-role" }}{{ .Data.username }}{{ end }}",
+    "Password": "{{ with secret "rabbitmq/creds/users-role" }}{{ .Data.password }}{{ end }}"
+  }
+}

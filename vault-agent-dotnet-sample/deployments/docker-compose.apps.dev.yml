@@ -1,0 +1,78 @@
+name: vault-agent-dotnet-sample-services
+services:
+  vault-agent-orders:
+    image: hashicorp/vault:latest
+    volumes:
+      - ./agent-config/orders/vault-agent.hcl:/vault/config/agent.hcl
+      - ./agent-config/orders/appsettings.ctmpl:/vault/config/appsettings.ctmpl
+      - vault_approle_creds:/vault/credentials:ro
+      - ${VAULT_SECRETS_PATH:-../services/OrdersApi/vault-secrets}:/vault/secrets
+    environment:
+      VAULT_ADDR: "http://vault:8200"
+    entrypoint:
+      - vault
+      - agent
+      - -config=/vault/config/agent.hcl
+    networks:
+      - vault_network
+  # orders-api:
+  #   image: orders-api:latest
+  #   build:
+  #     context: .. # Root of the project
+  #     dockerfile: services/OrdersApi/Dockerfile # Path to Dockerfile relative to context
+  #   volumes:
+  #     - secrets_orders:/vault/secrets:ro
+  #   ports:
+  #     - "5001:8080"
+  #   networks:
+  #     - vault_network
+  #   depends_on:
+  #     - vault-agent-orders
+
+  vault-agent-users:
+    image: hashicorp/vault:latest
+    volumes:
+      - ./agent-config/users/vault-agent.hcl:/vault/config/agent.hcl
+      - ./agent-config/users/appsettings.ctmpl:/vault/config/appsettings.ctmpl
+      - vault_approle_creds:/vault/credentials:ro
+      - ${VAULT_SECRETS_PATH:-../services/UsersApi/vault-secrets}:/vault/secrets
+    environment:
+      VAULT_ADDR: "http://vault:8200"
+    entrypoint:
+      - vault
+      - agent
+      - -config=/vault/config/agent.hcl
+    networks:
+      - vault_network
+
+#  users-api:
+#    image: users-api:latest
+#    build:
+#      context: ..                          # Root of the project
+#      dockerfile: services/UsersApi/Dockerfile  # Path to Dockerfile relative to context
+#    volumes:
+#      - secrets_users:/vault/secrets:ro
+#    ports:
+#      - "5002:8080"
+#    networks:
+#      - vault_network
+#    depends_on:
+#      - vault-agent-users
+
+volumes:
+  vault_approle_creds:
+    external: true
+  secrets_orders:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+  secrets_users:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+
+networks:
+  vault_network:
+    external: true
