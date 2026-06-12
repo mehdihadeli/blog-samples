@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IncludeVulnerablePackage>false</IncludeVulnerablePackage>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.9" />
+    <PackageReference Include="Dapper" Version="2.1.66" />
+    <PackageReference Include="NodaTime" Version="3.2.2" />
+    <PackageReference Include="Serilog.AspNetCore" Version="9.0.0" />
+  </ItemGroup>
+
+  <!--
+    Flip this on when you want to test Dependency-Track alerting with an intentionally
+    old package version in a non-production environment:
+    dotnet build -p:IncludeVulnerablePackage=true
+  -->
+  <ItemGroup Condition="'$(IncludeVulnerablePackage)' == 'true'">
+    <PackageReference Include="System.Text.Encodings.Web" Version="4.7.1" />
+  </ItemGroup>
+
+</Project>

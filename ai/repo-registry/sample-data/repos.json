@@ -1,0 +1,39 @@
+{
+  "repos": [
+    {
+      "name": "Shared.Contracts",
+      "path": "Shared.Contracts",
+      "stack": "dotnet-classlib",
+      "dependsOn": [],
+      "dependents": ["Orders.Api", "Billing.Worker"]
+    },
+    {
+      "name": "Orders.Api",
+      "path": "Orders.Api",
+      "stack": "aspnet-core",
+      "dependsOn": ["Shared.Contracts"],
+      "dependents": ["AdminPortal.Angular", "Platform.Infrastructure"]
+    },
+    {
+      "name": "Billing.Worker",
+      "path": "Billing.Worker",
+      "stack": "dotnet-worker",
+      "dependsOn": ["Shared.Contracts"],
+      "dependents": []
+    },
+    {
+      "name": "AdminPortal.Angular",
+      "path": "AdminPortal.Angular",
+      "stack": "angular",
+      "dependsOn": ["Orders.Api"],
+      "dependents": []
+    },
+    {
+      "name": "Platform.Infrastructure",
+      "path": "Platform.Infrastructure",
+      "stack": "terraform",
+      "dependsOn": ["Orders.Api"],
+      "dependents": []
+    }
+  ]
+}

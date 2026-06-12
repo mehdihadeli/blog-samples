@@ -1,0 +1,32 @@
+name: ollama-docker-compose
+services:
+  ollama:
+    # Uncomment below for GPU support
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities:
+    #             - gpu
+    volumes:
+      - ollama:/root/.ollama
+    ports:
+       - 11434:11434
+    container_name: ollama
+    pull_policy: always
+    healthcheck:
+      test: ollama --version || exit 1
+    tty: true
+    restart: unless-stopped
+    image: ollama/ollama:latest
+    networks:
+      - ai-network
+networks:
+  ai-network:
+    driver: bridge
+
+volumes:
+  seq-data: {}
+  ollama: {}

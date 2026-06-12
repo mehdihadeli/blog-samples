@@ -1,0 +1,5 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SbomDependencyTrackDemo.Api/SbomDependencyTrackDemo.Api.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,57 @@
+name: sbom-and-dependency-track
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  generate-and-upload-sbom:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore solution
+        run: dotnet restore SbomDependencyTrackDemo.slnx
+
+      - name: Restore local tools
+        run: dotnet tool restore
+
+      - name: Generate CycloneDX SBOM
+        run: |
+          mkdir -p artifacts/sbom
+          dotnet dotnet-CycloneDX SbomDependencyTrackDemo.slnx \
+            -o artifacts/sbom \
+            -fn sbom.cyclonedx.json \
+            -F Json \
+            -rs
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: artifacts/sbom/sbom.cyclonedx.json
+
+      - name: Upload to Dependency-Track
+        if: ${{ secrets.DT_BASE_URL != '' && secrets.DT_API_KEY != '' && secrets.DT_PROJECT_UUID != '' }}
+        env:
+          DT_BASE_URL: ${{ secrets.DT_BASE_URL }}
+          DT_API_KEY: ${{ secrets.DT_API_KEY }}
+          DT_PROJECT_UUID: ${{ secrets.DT_PROJECT_UUID }}
+        run: |
+          curl -sS -X POST "${DT_BASE_URL}/api/v1/bom" \
+            -H "X-API-Key: ${DT_API_KEY}" \
+            -H "Content-Type: multipart/form-data" \
+            -F "project=${DT_PROJECT_UUID}" \
+            -F "bom=@artifacts/sbom/sbom.cyclonedx.json"
