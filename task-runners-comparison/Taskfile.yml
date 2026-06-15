@@ -1,0 +1,53 @@
+version: '3'
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+    - task --list
+
+  restore:
+    desc: Restore NuGet packages and tools
+    cmds:
+    - dotnet restore TaskRunnersComparison.slnx
+    - dotnet tool restore
+
+  build:
+    desc: Build the solution
+    deps: [ restore ]
+    cmds:
+    - dotnet build TaskRunnersComparison.slnx
+
+  test:
+    desc: Run tests
+    deps: [ build ]
+    cmds:
+    - dotnet test TaskRunnersComparison.slnx
+
+  "format:cs":
+    desc: Format C# code
+    cmds:
+    - dotnet csharpier format .
+
+  format:
+    desc: Format all code
+    deps: [ "format:cs" ]
+
+  clean:
+    desc: Clean build artifacts
+    cmds:
+    - dotnet clean TaskRunnersComparison.slnx
+
+  hook:
+    desc: Setup pre-commit hooks
+    cmds:
+    - git config core.hooksPath .husky
+
+  prepare:
+    desc: First-time setup after cloning (restore + git hooks)
+    deps: [ restore, hook ]
+
+  run:
+    desc: Run the application with Aspire
+    cmds:
+    - aspire start

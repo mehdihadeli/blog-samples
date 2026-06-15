@@ -1,0 +1,28 @@
+default:
+  @just --list
+
+restore:
+  dotnet restore TaskRunnersComparison.slnx
+  dotnet tool restore
+
+build: restore
+  dotnet build TaskRunnersComparison.slnx
+
+test: build
+  dotnet test TaskRunnersComparison.slnx
+
+format-cs:
+  dotnet csharpier format .
+
+format: format-cs
+
+clean:
+  dotnet clean TaskRunnersComparison.slnx
+
+hook:
+  git config core.hooksPath .husky
+
+prepare: restore hook
+
+run:
+  aspire start

@@ -1,0 +1,6 @@
+{
+  "appHost": {
+    "path": "TaskRunnersComparison.AppHost/TaskRunnersComparison.AppHost.csproj"
+  },
+  "channel": "stable"
+}

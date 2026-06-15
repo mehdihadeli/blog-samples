@@ -1,0 +1,45 @@
+[tools]
+node = "24"
+dotnet = "10"
+
+[settings]
+task.run_auto_install = false
+idiomatic_version_file_enable_tools = ['bun', 'dotnet']
+
+[tasks.restore]
+description = "Restore NuGet packages and tools"
+run = ["dotnet restore TaskRunnersComparison.slnx", "dotnet tool restore"]
+
+[tasks.build]
+description = "Build the solution"
+depends = ["restore"]
+run = "dotnet build TaskRunnersComparison.slnx"
+
+[tasks.test]
+description = "Run tests"
+depends = ["build"]
+run = "dotnet test TaskRunnersComparison.slnx"
+
+[tasks."format:cs"]
+description = "Format C# code"
+run = "dotnet csharpier format ."
+
+[tasks.format]
+description = "Format all code"
+depends = ["format:cs"]
+
+[tasks.clean]
+description = "Clean build artifacts"
+run = "dotnet clean TaskRunnersComparison.slnx"
+
+[tasks.hook]
+description = "Setup pre-commit hooks"
+run = "git config core.hooksPath .husky"
+
+[tasks.prepare]
+description = "First-time setup after cloning (restore + git hooks)"
+depends = ["restore", "hook"]
+
+[tasks.run]
+description = "Run the application with Aspire"
+run = "aspire start"

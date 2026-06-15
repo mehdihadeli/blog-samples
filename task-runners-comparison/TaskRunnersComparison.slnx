@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="TaskRunnersComparison.ApiService/TaskRunnersComparison.ApiService.csproj" />
+  <Project Path="TaskRunnersComparison.AppHost/TaskRunnersComparison.AppHost.csproj" />
+  <Project Path="TaskRunnersComparison.ServiceDefaults/TaskRunnersComparison.ServiceDefaults.csproj" />
+  <Project Path="TaskRunnersComparison.Web/TaskRunnersComparison.Web.csproj" />
+</Solution>
