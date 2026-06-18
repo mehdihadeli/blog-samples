@@ -1,5 +1,11 @@
 <Solution>
   <Folder Name="/src/">
-    <Project Path="src/SbomDependencyTrackDemo.Api/SbomDependencyTrackDemo.Api.csproj" />
+    <Project Path="src/SbomDependencyTrackDemo/SbomDependencyTrackDemo.ApiService/SbomDependencyTrackDemo.ApiService.csproj" />
+    <Project Path="src/SbomDependencyTrackDemo/SbomDependencyTrackDemo.AppHost/SbomDependencyTrackDemo.AppHost.csproj" />
+    <Project Path="src/SbomDependencyTrackDemo/SbomDependencyTrackDemo.ServiceDefaults/SbomDependencyTrackDemo.ServiceDefaults.csproj" />
+    <Project Path="src/SbomDependencyTrackDemo/SbomDependencyTrackDemo.Web/SbomDependencyTrackDemo.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SbomDependencyTrackDemo.Tests/SbomDependencyTrackDemo.Tests.csproj" />
   </Folder>
 </Solution>

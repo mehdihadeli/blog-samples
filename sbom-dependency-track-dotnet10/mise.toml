@@ -1,0 +1,45 @@
+[tools]
+dotnet = "10"
+
+[settings]
+task.run_auto_install = false
+idiomatic_version_file_enable_tools = ['dotnet']
+
+[tasks.restore]
+description = "Restore the solution and local tools"
+run = ["dotnet restore SbomDependencyTrackDemo.slnx", "dotnet tool restore"]
+
+[tasks.build]
+description = "Build the sample"
+depends = ["restore"]
+run = "dotnet build SbomDependencyTrackDemo.slnx"
+
+[tasks.run]
+description = "Start the app through Aspire"
+depends = ["build"]
+run = "aspire start"
+
+[tasks."sbom:generate"]
+description = "Generate the CycloneDX SBOM"
+depends = ["restore"]
+run = "./scripts/generate-sbom.sh"
+
+[tasks."dependency-track:up"]
+description = "Start Dependency-Track locally"
+run = [
+  "cp dependency-track/.env.example dependency-track/.env",
+  "docker compose --env-file dependency-track/.env -f dependency-track/docker-compose.yml up -d"
+]
+
+[tasks."dependency-track:down"]
+description = "Stop Dependency-Track locally"
+run = "docker compose --env-file dependency-track/.env -f dependency-track/docker-compose.yml down"
+
+[tasks."sbom:upload"]
+description = "Upload the generated SBOM to Dependency-Track"
+depends = ["sbom:generate"]
+run = "./scripts/upload-to-dependency-track.sh"
+
+[tasks.prepare]
+description = "First-time setup after cloning"
+depends = ["restore"]

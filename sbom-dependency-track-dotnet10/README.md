@@ -9,7 +9,9 @@ This sample shows an end-to-end flow:
 
 ## Project structure
 
+- `SbomDependencyTrackDemo.AppHost`: Aspire AppHost used to run the sample locally.
 - `src/SbomDependencyTrackDemo.Api`: sample .NET 10 API.
+- `mise.toml`: local task runner and tool setup.
 - `dependency-track/docker-compose.yml`: local Dependency-Track + PostgreSQL stack.
 - `scripts/generate-sbom.sh`: generate CycloneDX SBOM (`JSON`).
 - `scripts/upload-to-dependency-track.sh`: upload SBOM to Dependency-Track API.
@@ -17,18 +19,42 @@ This sample shows an end-to-end flow:
 
 ## Prerequisites
 
-- .NET SDK 10
+- [mise](https://mise.jdx.dev/)
+- [Aspire CLI](https://aspire.dev/get-started/install-cli/)
 - Docker and Docker Compose
 - curl
 
 ## 1) Run the sample app
 
+The default local workflow for this sample uses `mise` plus the Aspire AppHost.
+
 ```bash
-dotnet restore
-dotnet run --project src/SbomDependencyTrackDemo.Api
+# 1. Install tools from mise.toml
+mise install
+
+# 2. Restore packages and local tools
+mise run prepare
+
+# 3. Start the app through Aspire
+mise run run
+```
+
+If you prefer to run it without `mise`, the equivalent commands are:
+
+```bash
+dotnet restore SbomDependencyTrackDemo.slnx
+dotnet tool restore
+dotnet build SbomDependencyTrackDemo.slnx
+aspire start
 ```
 
 ## 2) Generate SBOM locally
+
+```bash
+mise run sbom:generate
+```
+
+Equivalent direct command:
 
 ```bash
 ./scripts/generate-sbom.sh
@@ -42,6 +68,12 @@ Generated file:
 
 ```bash
 cp dependency-track/.env.example dependency-track/.env
+mise run dependency-track:up
+```
+
+Equivalent direct command:
+
+```bash
 docker compose --env-file dependency-track/.env -f dependency-track/docker-compose.yml up -d
 ```
 
@@ -68,6 +100,12 @@ In Dependency-Track UI:
 export DT_API_KEY="replace-with-api-key"
 export DT_PROJECT_UUID="replace-with-project-uuid"
 
+mise run sbom:upload
+```
+
+Equivalent direct command:
+
+```bash
 ./scripts/upload-to-dependency-track.sh
 ```
 
@@ -77,8 +115,8 @@ This sample contains a conditional package reference that can be turned on for t
 
 ```bash
 dotnet build -p:IncludeVulnerablePackage=true
-./scripts/generate-sbom.sh
-./scripts/upload-to-dependency-track.sh
+mise run sbom:generate
+mise run sbom:upload
 ```
 
 Then review findings in Dependency-Track.
