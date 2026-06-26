@@ -1,6 +1,0 @@
-{
-  "appHost": {
-    "path": "SbomDependencyTrackDemo.AppHost/SbomDependencyTrackDemo.AppHost.csproj"
-  },
-  "channel": "stable"
-}
