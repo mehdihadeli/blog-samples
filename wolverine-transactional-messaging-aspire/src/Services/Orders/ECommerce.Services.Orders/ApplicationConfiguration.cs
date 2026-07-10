@@ -5,6 +5,8 @@ using BuildingBlocks.Integration.Wolverine.RabbitMQ;
 using ECommerce.Services.Orders.Products.Features.GettingImportedProductById.v1;
 using ECommerce.Services.Orders.Products.Features.GettingImportedProducts.v1;
 using ECommerce.Services.Orders.Shared.Extensions.HostApplicationBuilderExtensions;
+using ECommerce.Services.Shared.Contracts.IntegrationEvents;
+using ECommerce.Services.Shared.Contracts.MessageEnvelope;
 using ECommerce.Services.Shared.Contracts.Messaging;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
@@ -29,6 +31,12 @@ public static class ApplicationConfiguration
         var busOptions =
             builder.Configuration.GetSection("Wolverine").Get<WolverineBusOptions>()
             ?? new WolverineBusOptions();
+        var useDurableInboxOnAllListeners =
+            builder
+                .Configuration.GetSection("Wolverine")
+                .GetValue<bool?>(nameof(WolverineBusOptions.UseDurableInboxOnAllListeners)) ?? true;
+
+        busOptions.DeadLetterQueueName ??= MessagingConstants.DeadLetterQueueName;
 
         builder.Host.AddWolverineMessaging(
             new WolverineIntegrationOptions
@@ -39,9 +47,11 @@ public static class ApplicationConfiguration
                 {
                     ConfigureRabbitMqTopology = transport == MessagingTransportType.RabbitMq,
                     UseDurableLocalQueues = false,
-                    UseDurableInboxOnAllListeners = true,
+                    UseDurableInboxOnAllListeners = useDurableInboxOnAllListeners,
                     UseEntityFrameworkCoreTransactions =
                         busOptions.UseEntityFrameworkCoreTransactions,
+                    UseNativeDeadLetterQueue = busOptions.UseNativeDeadLetterQueue,
+                    DeadLetterQueueName = busOptions.DeadLetterQueueName,
                 },
             },
             options =>
@@ -54,9 +64,13 @@ public static class ApplicationConfiguration
                         options.UseRabbitMqTransport(
                             "rabbitmq",
                             rabbitMq =>
-                                rabbitMq.ListenToRabbitQueueTransport(
-                                    MessagingConstants.ProductCreatedQueue
-                                )
+                                rabbitMq
+                                    .ListenToRabbitQueueTransport(
+                                        MessagingConstants.ProductCreatedQueue,
+                                        busOptions
+                                    )
+                                    .DefaultIncomingMessage<MessageEnvelope<ProductCreatedV1>>(),
+                            busOptions
                         );
                         break;
 
@@ -64,10 +78,14 @@ public static class ApplicationConfiguration
                         options.UseKafkaTransport(
                             "kafka",
                             kafka =>
-                                kafka.ListenToKafkaTopicTransport(
-                                    MessagingConstants.ProductCreatedTopic,
-                                    MessagingConstants.OrdersProductsConsumerGroup
-                                )
+                                kafka
+                                    .ListenToKafkaTopicTransport(
+                                        MessagingConstants.ProductCreatedTopic,
+                                        MessagingConstants.OrdersProductsConsumerGroup,
+                                        busOptions
+                                    )
+                                    .DefaultIncomingMessage<MessageEnvelope<ProductCreatedV1>>(),
+                            busOptions
                         );
                         break;
                 }

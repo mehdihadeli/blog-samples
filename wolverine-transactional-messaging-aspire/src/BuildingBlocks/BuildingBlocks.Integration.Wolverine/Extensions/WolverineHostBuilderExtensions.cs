@@ -5,6 +5,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Wolverine;
 using Wolverine.EntityFrameworkCore;
+using Wolverine.ErrorHandling;
 using Wolverine.Postgresql;
 
 namespace BuildingBlocks.Integration.Wolverine.Extensions;
@@ -38,6 +39,22 @@ public static class WolverineHostBuilderExtensions
             }
 
             configure(options);
+
+            if (integrationOptions.Bus.Retry is { MaximumAttempts: > 0 })
+            {
+                var immediateRetries = integrationOptions.Bus.Retry.MaximumAttempts - 1;
+                if (immediateRetries > 0)
+                {
+                    options
+                        .OnException<Exception>()
+                        .RetryTimes(immediateRetries)
+                        .Then.MoveToErrorQueue();
+                }
+                else
+                {
+                    options.OnException<Exception>().MoveToErrorQueue();
+                }
+            }
         });
 
         hostBuilder.ConfigureServices(services =>

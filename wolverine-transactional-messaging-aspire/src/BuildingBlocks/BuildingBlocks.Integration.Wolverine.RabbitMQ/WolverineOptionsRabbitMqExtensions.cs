@@ -1,4 +1,5 @@
 using BuildingBlocks.Integration.Wolverine;
+using BuildingBlocks.Integration.Wolverine.Configuration;
 using Wolverine;
 using Wolverine.RabbitMQ;
 
@@ -9,10 +10,19 @@ public static class WolverineOptionsRabbitMqExtensions
     public static WolverineOptions UseRabbitMqTransport(
         this WolverineOptions options,
         string connectionName,
-        Action<WolverineOptions> configure
+        Action<WolverineOptions> configure,
+        WolverineBusOptions? busOptions = null
     )
     {
-        options.UseRabbitMqUsingNamedConnection(connectionName).AutoProvision();
+        var transport = options.UseRabbitMqUsingNamedConnection(connectionName).AutoProvision();
+
+        if (!string.IsNullOrWhiteSpace(busOptions?.DeadLetterQueueName))
+        {
+            transport.CustomizeDeadLetterQueueing(
+                new DeadLetterQueue(busOptions.DeadLetterQueueName)
+            );
+        }
+
         configure(options);
 
         return options;
@@ -29,9 +39,10 @@ public static class WolverineOptionsRabbitMqExtensions
         return options;
     }
 
-    public static WolverineOptions ListenToRabbitQueueTransport(
+    public static RabbitMqListenerConfiguration ListenToRabbitQueueTransport(
         this WolverineOptions options,
-        string queueName
+        string queueName,
+        WolverineBusOptions? busOptions = null
     )
     {
         WolverineMessageTopologyExtensions.RegisterListenerTopology(
@@ -39,8 +50,18 @@ public static class WolverineOptionsRabbitMqExtensions
             queueName,
             queueName
         );
-        options.ListenToRabbitQueue(queueName);
 
-        return options;
+        var listener = options.ListenToRabbitQueue(queueName);
+
+        if (busOptions?.UseNativeDeadLetterQueue == false)
+        {
+            listener.DisableDeadLetterQueueing();
+        }
+        else if (!string.IsNullOrWhiteSpace(busOptions?.DeadLetterQueueName))
+        {
+            listener.DeadLetterQueueing(new DeadLetterQueue(busOptions.DeadLetterQueueName));
+        }
+
+        return listener;
     }
 }

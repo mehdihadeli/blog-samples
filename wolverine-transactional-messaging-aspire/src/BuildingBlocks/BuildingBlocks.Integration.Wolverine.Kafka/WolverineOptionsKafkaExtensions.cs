@@ -1,3 +1,4 @@
+using BuildingBlocks.Integration.Wolverine.Configuration;
 using Wolverine;
 using Wolverine.Kafka;
 
@@ -8,10 +9,17 @@ public static class WolverineOptionsKafkaExtensions
     public static WolverineOptions UseKafkaTransport(
         this WolverineOptions options,
         string connectionName,
-        Action<WolverineOptions> configure
+        Action<WolverineOptions> configure,
+        WolverineBusOptions? busOptions = null
     )
     {
-        options.UseKafkaUsingNamedConnection(connectionName).AutoProvision();
+        var transport = options.UseKafkaUsingNamedConnection(connectionName).AutoProvision();
+
+        if (!string.IsNullOrWhiteSpace(busOptions?.DeadLetterQueueName))
+        {
+            transport.DeadLetterQueueTopicName(busOptions.DeadLetterQueueName);
+        }
+
         configure(options);
 
         return options;
@@ -27,13 +35,14 @@ public static class WolverineOptionsKafkaExtensions
         return options;
     }
 
-    public static WolverineOptions ListenToKafkaTopicTransport(
+    public static KafkaListenerConfiguration ListenToKafkaTopicTransport(
         this WolverineOptions options,
         string topicName,
-        string consumerGroupId
+        string consumerGroupId,
+        WolverineBusOptions? busOptions = null
     )
     {
-        options
+        var listener = options
             .ListenToKafkaTopic(topicName)
             .UseDurableInbox()
             .ConfigureConsumer(config =>
@@ -41,6 +50,15 @@ public static class WolverineOptionsKafkaExtensions
                 config.GroupId = consumerGroupId;
             });
 
-        return options;
+        if (busOptions?.UseNativeDeadLetterQueue != false)
+        {
+            listener.EnableNativeDeadLetterQueue();
+        }
+        else
+        {
+            listener.DisableNativeDeadLetterQueue();
+        }
+
+        return listener;
     }
 }

@@ -15,7 +15,7 @@ public abstract class OrdersIntegrationTestBase : IntegrationTestBase<Program>
     )
         : base(postgres, rabbitMq, kafka) { }
 
-    protected virtual string MessagingTransport => "rabbitmq";
+    protected virtual string MessagingTransport => "kafka";
 
     protected override bool UsesKafkaTransport =>
         string.Equals(MessagingTransport, "kafka", StringComparison.OrdinalIgnoreCase);

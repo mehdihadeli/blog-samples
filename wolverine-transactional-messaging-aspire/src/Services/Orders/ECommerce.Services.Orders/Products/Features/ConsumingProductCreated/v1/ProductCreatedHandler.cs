@@ -14,6 +14,8 @@ public static class ProductCreatedHandler
         CancellationToken cancellationToken
     )
     {
+        await ProductCreatedFaultyHandler.Handle(envelope, cancellationToken);
+
         var message = envelope.Message;
         var existing = await dbContext.ImportedProducts.SingleOrDefaultAsync(
             x => x.Id == message.ProductId,

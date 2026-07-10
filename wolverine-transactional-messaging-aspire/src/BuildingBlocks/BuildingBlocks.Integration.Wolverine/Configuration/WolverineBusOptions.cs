@@ -9,4 +9,10 @@ public sealed class WolverineBusOptions
     public bool UseDurableLocalQueues { get; set; } = true;
 
     public bool UseEntityFrameworkCoreTransactions { get; set; } = true;
+
+    public bool UseNativeDeadLetterQueue { get; set; } = true;
+
+    public string? DeadLetterQueueName { get; set; }
+
+    public WolverineRetryOptions Retry { get; set; } = new();
 }
