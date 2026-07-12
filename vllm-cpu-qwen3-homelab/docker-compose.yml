@@ -1,0 +1,64 @@
+services:
+  vllm:
+    image: vllm/vllm-openai-cpu:latest-x86_64
+    container_name: vllm-cpu-qwen3
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./data/huggingface:/root/.cache/huggingface
+    environment:
+      HF_TOKEN: ""
+      VLLM_CPU_KVCACHE_SPACE: "4"
+      VLLM_CPU_NUM_OF_RESERVED_CPU: "1"
+      VLLM_CPU_OMP_THREADS_BIND: auto
+    cap_add:
+      - SYS_NICE
+    security_opt:
+      - seccomp=unconfined
+    shm_size: 4g
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'python -c "import urllib.request; urllib.request.urlopen(''http://127.0.0.1:8000/health'', timeout=5)"',
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+    command:
+      - --model
+      - Qwen/Qwen3-0.6B
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --dtype
+      - bfloat16
+      - --max-model-len
+      - "2048"
+      - --max-num-seqs
+      - "4"
+      - --max-num-batched-tokens
+      - "512"
+      - --enable-prefix-caching
+      - --api-key
+      - changeme-local
+      - --disable-log-requests
+
+  prometheus:
+    image: prom/prometheus:v3.3.1
+    container_name: vllm-cpu-prometheus
+    depends_on:
+      - vllm
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ./data/prometheus:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    restart: unless-stopped

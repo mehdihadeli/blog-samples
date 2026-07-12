@@ -1,0 +1,29 @@
+groups:
+- name: vllm-cpu-homelab
+  rules:
+  - alert: VLLMQueueDepthGrowing
+    expr: vllm:num_requests_waiting > 4
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "vLLM queue depth is growing"
+      description: "More than four requests have been waiting for five minutes on the CPU-only home-lab node. Lower concurrency or batch size."
+
+  - alert: VLLMHighTimeToFirstToken
+    expr: histogram_quantile(0.95, sum by (le) (rate(vllm:time_to_first_token_seconds_bucket[5m]))) > 3
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "vLLM time to first token is high"
+      description: "P95 time to first token has been above three seconds for ten minutes. Check context length and request concurrency."
+
+  - alert: VLLMHighE2ELatency
+    expr: histogram_quantile(0.95, sum by (le) (rate(vllm:e2e_request_latency_seconds_bucket[5m]))) > 15
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "vLLM end-to-end latency is high"
+      description: "P95 end-to-end request latency has been above fifteen seconds for ten minutes. The node is likely overloaded for the current tuning profile."
