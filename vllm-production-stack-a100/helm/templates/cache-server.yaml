@@ -1,0 +1,67 @@
+{{- if .Values.cacheserverSpec.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-cache-server
+  labels:
+    {{- include "vllm-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cache-server
+spec:
+  selector:
+    {{- include "vllm-stack.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: cache-server
+  ports:
+    - name: http
+      port: {{ .Values.cacheserverSpec.servicePort }}
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-cache-server
+  labels:
+    {{- include "vllm-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cache-server
+spec:
+  replicas: {{ .Values.cacheserverSpec.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "vllm-stack.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: cache-server
+  template:
+    metadata:
+      labels:
+        {{- include "vllm-stack.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: cache-server
+    spec:
+      containers:
+        - name: cache-server
+          image: {{ printf "%s:%s" .Values.cacheserverSpec.image.repository .Values.cacheserverSpec.image.tag }}
+          imagePullPolicy: {{ .Values.cacheserverSpec.imagePullPolicy }}
+          command: ["python", "-m", "http.server"]
+          args:
+            - {{ .Values.cacheserverSpec.containerPort | quote }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.cacheserverSpec.containerPort }}
+          env:
+            - name: LMCACHE_SERDE
+              value: {{ .Values.cacheserverSpec.serde | quote }}
+            - name: LMCACHE_L1_SIZE_GB
+              value: {{ .Values.cacheserverSpec.l1SizeGB | quote }}
+            - name: LMCACHE_EVICTION_POLICY
+              value: {{ .Values.cacheserverSpec.evictionPolicy | quote }}
+            {{- range $env := .Values.cacheserverSpec.env }}
+            - name: {{ $env.name }}
+              value: {{ $env.value | quote }}
+            {{- end }}
+          startupProbe:
+            {{- toYaml .Values.cacheserverSpec.startupProbe | nindent 12 }}
+          livenessProbe:
+            {{- toYaml .Values.cacheserverSpec.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.cacheserverSpec.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.cacheserverSpec.resources | nindent 12 }}
+{{- end }}

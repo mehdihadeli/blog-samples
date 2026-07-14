@@ -6,6 +6,9 @@ services:
       - "8000"
     environment:
       HF_TOKEN: ${HF_TOKEN:-}
+      OTEL_SERVICE_NAME: vllm-a100-production
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_RESOURCE_ATTRIBUTES: service.name=vllm-a100-production,deployment.environment=production
     volumes:
       - ./data/huggingface:/root/.cache/huggingface
     gpus: all
@@ -86,14 +89,14 @@ services:
     ports:
       - "127.0.0.1:8000:8080"
     volumes:
-      - ./nginx/production.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./configs/nginx/production.conf:/etc/nginx/conf.d/default.conf:ro
     restart: unless-stopped
 
   prometheus:
     image: prom/prometheus:v3.3.1
     container_name: vllm-production-prometheus
     depends_on:
-      - vllm
+      - otel-collector
     ports:
       - "127.0.0.1:9090:9090"
     volumes:
@@ -103,4 +106,27 @@ services:
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
+    restart: unless-stopped
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.61.0
+    container_name: vllm-production-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "127.0.0.1:16686:16686"
+    restart: unless-stopped
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.108.0
+    container_name: vllm-production-otel-collector
+    depends_on:
+      - vllm
+      - jaeger
+    command:
+      - --config=/conf/otel-collector-config.yaml
+    volumes:
+      - ./configs/otel/otel-collector-config.yaml:/conf/otel-collector-config.yaml:ro
+    ports:
+      - "127.0.0.1:8889:8889"
     restart: unless-stopped

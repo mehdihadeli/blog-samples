@@ -1,0 +1,14 @@
+{{- $otel := .Values.observabilitySpec.otelCollector }}
+{{- if $otel.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $otel.configMapName }}
+  labels:
+    {{- include "vllm-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: otel-collector
+data:
+  otel-collector-config.yaml: |
+{{ tpl (.Files.Get "configs/otel/otel-collector-config.yaml") . | indent 4 }}
+{{- end }}

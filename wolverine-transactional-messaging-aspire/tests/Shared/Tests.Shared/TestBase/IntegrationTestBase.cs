@@ -9,58 +9,71 @@ using Xunit;
 
 namespace Tests.Shared.TestBase;
 
-public abstract class IntegrationTestBase<TEntryPoint> : IAsyncLifetime
+public abstract class IntegrationTestBase<TEntryPoint, TSharedFixture> : IAsyncLifetime
     where TEntryPoint : class
+    where TSharedFixture : SharedFixture<TEntryPoint>
 {
-    protected PostgresContainerFixture Postgres { get; }
+    private CustomWebApplicationFactory<TEntryPoint>? _factory;
 
-    protected RabbitMqContainerFixture RabbitMq { get; }
-
-    protected KafkaContainerFixture Kafka { get; }
-
-    protected CustomWebApplicationFactory<TEntryPoint> Factory { get; }
-
-    protected IntegrationTestBase(
-        PostgresContainerFixture postgres,
-        RabbitMqContainerFixture rabbitMq,
-        KafkaContainerFixture kafka
-    )
+    protected IntegrationTestBase(TSharedFixture sharedFixture)
     {
-        Postgres = postgres;
-        RabbitMq = rabbitMq;
-        Kafka = kafka;
-        Factory = new CustomWebApplicationFactory<TEntryPoint>();
+        SharedFixture = sharedFixture;
     }
+
+    protected TSharedFixture SharedFixture { get; }
+
+    protected PostgresContainerFixture Postgres => SharedFixture.Postgres;
+
+    protected RabbitMqContainerFixture RabbitMq => SharedFixture.RabbitMq;
+
+    protected KafkaContainerFixture Kafka => SharedFixture.Kafka;
+
+    protected virtual string MessagingTransport => "rabbitmq";
+
+    protected CustomWebApplicationFactory<TEntryPoint> Factory =>
+        _factory
+        ?? throw new InvalidOperationException(
+            "The test application factory is not initialized for the current test."
+        );
 
     public virtual async Task InitializeAsync()
     {
-        await Postgres.ResetAsync();
-
-        if (UsesKafkaTransport)
-        {
-            await Kafka.EnsureStartedAsync();
-            await Kafka.CleanupTopicsAsync();
-        }
-        else
-        {
-            await RabbitMq.EnsureStartedAsync();
-            await RabbitMq.CleanupQueuesAsync();
-        }
-
-        ConfigureFactory(Factory);
+        await SharedFixture.ResetAsync(MessagingTransport);
+        _factory = SharedFixture.CreateFactory(MessagingTransport, ConfigureFactory);
         await ResetStateAsync();
     }
 
     public virtual async Task DisposeAsync()
     {
-        await Factory.DisposeAsync();
+        if (_factory is not null)
+        {
+            await _factory.DisposeAsync();
+            _factory = null;
+        }
     }
 
     protected virtual void ConfigureFactory(CustomWebApplicationFactory<TEntryPoint> factory) { }
 
     protected virtual Task ResetStateAsync() => Task.CompletedTask;
 
-    protected abstract bool UsesKafkaTransport { get; }
+    protected Task ShouldPublish<T>()
+        where T : class
+    {
+        return SharedFixture.ShouldPublish<T>();
+    }
+
+    protected Task ShouldConsume<T>()
+        where T : class
+    {
+        return SharedFixture.ShouldConsume<T>();
+    }
+
+    protected Task ShouldConsume<TMessage, TConsumedBy>()
+        where TMessage : class
+        where TConsumedBy : class
+    {
+        return SharedFixture.ShouldConsume<TMessage, TConsumedBy>();
+    }
 
     protected async Task ExecuteDbContextAsync<TContext>(Func<TContext, Task> action)
         where TContext : DbContext

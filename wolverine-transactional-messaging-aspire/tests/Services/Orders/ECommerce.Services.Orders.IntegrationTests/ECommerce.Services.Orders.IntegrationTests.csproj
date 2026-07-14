@@ -18,6 +18,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\..\..\src\Services\Orders\ECommerce.Services.Orders.Api\ECommerce.Services.Orders.Api.csproj" />
     <ProjectReference Include="..\..\..\..\src\Services\Orders\ECommerce.Services.Orders\ECommerce.Services.Orders.csproj" />
+    <ProjectReference Include="..\ECommerce.Services.Orders.TestShared\ECommerce.Services.Orders.TestShared.csproj" />
     <ProjectReference Include="..\..\..\Shared\Tests.Shared\Tests.Shared.csproj" />
   </ItemGroup>
 

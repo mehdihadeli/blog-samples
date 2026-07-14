@@ -6,15 +6,11 @@ using ECommerce.Services.Shared.Contracts.IntegrationEvents;
 using ECommerce.Services.Shared.Contracts.MessageEnvelope;
 using ECommerce.Services.Shared.Contracts.Messaging;
 using Tests.Shared.Factory;
-using Tests.Shared.Fixtures;
 
 namespace ECommerce.Services.Orders.IntegrationTests.Products.Features.ConsumingProductCreated.v1;
 
-public class KafkaDeadLetterQueueTests(
-    PostgresContainerFixture postgres,
-    RabbitMqContainerFixture rabbitMq,
-    KafkaContainerFixture kafka
-) : OrdersIntegrationTestBase(postgres, rabbitMq, kafka)
+public class KafkaDeadLetterQueueTests(OrdersSharedFixture sharedFixture)
+    : OrdersIntegrationTestBase(sharedFixture)
 {
     protected override string MessagingTransport => "kafka";
 

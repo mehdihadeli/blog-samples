@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+- name: vllm-observability
+  orgId: 1
+  folder: vLLM
+  type: file
+  disableDeletion: false
+  editable: true
+  options:
+    path: /var/lib/grafana/dashboards

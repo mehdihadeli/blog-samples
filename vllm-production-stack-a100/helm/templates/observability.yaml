@@ -1,0 +1,299 @@
+{{- $jaeger := .Values.observabilitySpec.jaeger }}
+{{- $otel := .Values.observabilitySpec.otelCollector }}
+{{- $prom := .Values.observabilitySpec.prometheus }}
+{{- $graf := .Values.observabilitySpec.grafana }}
+{{- if $jaeger.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $jaeger.name }}
+  labels:
+    {{- include "vllm-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: jaeger
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "vllm-stack.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: jaeger
+  template:
+    metadata:
+      labels:
+        {{- include "vllm-stack.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: jaeger
+    spec:
+      containers:
+        - name: jaeger
+          image: {{ $jaeger.image }}
+          ports:
+            - name: query
+              containerPort: 16686
+            - name: otlp-grpc
+              containerPort: 4317
+            - name: otlp-http
+              containerPort: 4318
+          env:
+            - name: COLLECTOR_OTLP_ENABLED
+              value: "true"
+          resources:
+            {{- toYaml $jaeger.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $jaeger.queryServiceName }}
+  labels:
+    {{- include "vllm-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: jaeger
+spec:
+  selector:
+    {{- include "vllm-stack.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: jaeger
+  ports:
+    - name: query
+      port: 16686
+      targetPort: query
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $jaeger.collectorServiceName }}
+  labels:
+    {{- include "vllm-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: jaeger
+spec:
+  selector:
+    {{- include "vllm-stack.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: jaeger
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: otlp-grpc
+    - name: otlp-http
+      port: 4318
+      targetPort: otlp-http
+{{- end }}
+{{- if $otel.enabled }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $otel.serviceAccountName }}
+  labels:
+    {{- include "vllm-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: otel-collector
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $otel.serviceAccountName }}
+  labels:
+    {{- include "vllm-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: otel-collector
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $otel.serviceAccountName }}
+  labels:
+    {{- include "vllm-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: otel-collector
+subjects:
+  - kind: ServiceAccount
+    name: {{ $otel.serviceAccountName }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $otel.serviceAccountName }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $otel.name }}
+  labels:
+    {{- include "vllm-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: otel-collector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "vllm-stack.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: otel-collector
+  template:
+    metadata:
+      labels:
+        {{- include "vllm-stack.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: otel-collector
+    spec:
+      serviceAccountName: {{ $otel.serviceAccountName }}
+      containers:
+        - name: otel-collector
+          image: {{ $otel.image }}
+          args:
+            - --config=/conf/otel-collector-config.yaml
+          ports:
+            - name: otlp-grpc
+              containerPort: 4317
+            - name: otlp-http
+              containerPort: 4318
+            - name: health
+              containerPort: 13133
+          volumeMounts:
+            - name: collector-config
+              mountPath: /conf
+          resources:
+            {{- toYaml $otel.resources | nindent 12 }}
+      volumes:
+        - name: collector-config
+          configMap:
+            name: {{ $otel.configMapName }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $otel.name }}
+  labels:
+    {{- include "vllm-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: otel-collector
+spec:
+  selector:
+    {{- include "vllm-stack.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: otel-collector
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: otlp-grpc
+    - name: otlp-http
+      port: 4318
+      targetPort: otlp-http
+{{- end }}
+{{- if $prom.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $prom.name }}
+  labels:
+    {{- include "vllm-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "vllm-stack.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: prometheus
+  template:
+    metadata:
+      labels:
+        {{- include "vllm-stack.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: prometheus
+    spec:
+      containers:
+        - name: prometheus
+          image: {{ $prom.image }}
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --web.enable-remote-write-receiver
+            - --storage.tsdb.retention.time={{ $prom.retentionTime }}
+          ports:
+            - name: http
+              containerPort: 9090
+          volumeMounts:
+            - name: prometheus-config
+              mountPath: /etc/prometheus
+          resources:
+            {{- toYaml $prom.resources | nindent 12 }}
+      volumes:
+        - name: prometheus-config
+          configMap:
+            name: {{ $prom.configMapName }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $prom.name }}
+  labels:
+    {{- include "vllm-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: prometheus
+spec:
+  selector:
+    {{- include "vllm-stack.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: prometheus
+  ports:
+    - name: http
+      port: 9090
+      targetPort: http
+{{- end }}
+{{- if $graf.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $graf.name }}
+  labels:
+    {{- include "vllm-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "vllm-stack.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: grafana
+  template:
+    metadata:
+      labels:
+        {{- include "vllm-stack.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: grafana
+    spec:
+      containers:
+        - name: grafana
+          image: {{ $graf.image }}
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              value: {{ $graf.adminUser | quote }}
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              value: {{ $graf.adminPassword | quote }}
+          volumeMounts:
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources
+            - name: dashboard-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: dashboards
+              mountPath: /var/lib/grafana/dashboards
+          resources:
+            {{- toYaml $graf.resources | nindent 12 }}
+      volumes:
+        - name: datasources
+          configMap:
+            name: {{ $graf.datasourceConfigMapName }}
+        - name: dashboard-provider
+          configMap:
+            name: {{ $graf.dashboardProviderConfigMapName }}
+        - name: dashboards
+          configMap:
+            name: {{ $graf.dashboardConfigMapName }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $graf.name }}
+  labels:
+    {{- include "vllm-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+spec:
+  selector:
+    {{- include "vllm-stack.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+{{- end }}

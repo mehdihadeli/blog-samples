@@ -1,52 +1,19 @@
 using ECommerce.Services.Catalogs.Shared.Data;
 using Tests.Shared.Factory;
-using Tests.Shared.Fixtures;
 using Tests.Shared.TestBase;
 
 namespace ECommerce.Services.Catalogs.IntegrationTests;
 
 [Collection(IntegrationTestCollection.Name)]
-public abstract class CatalogsIntegrationTestBase : IntegrationTestBase<Program>
+public abstract class CatalogsIntegrationTestBase
+    : IntegrationTestBase<Program, CatalogsSharedFixture>
 {
-    protected CatalogsIntegrationTestBase(
-        PostgresContainerFixture postgres,
-        RabbitMqContainerFixture rabbitMq,
-        KafkaContainerFixture kafka,
-        MongoContainerFixture mongo
-    )
-        : base(postgres, rabbitMq, kafka)
-    {
-        Mongo = mongo;
-    }
+    protected CatalogsIntegrationTestBase(CatalogsSharedFixture sharedFixture)
+        : base(sharedFixture) { }
 
-    protected MongoContainerFixture Mongo { get; }
+    protected override string MessagingTransport => "rabbitmq";
 
-    protected virtual string MessagingTransport => "rabbitmq";
-
-    protected override bool UsesKafkaTransport =>
-        string.Equals(MessagingTransport, "kafka", StringComparison.OrdinalIgnoreCase);
-
-    protected override void ConfigureFactory(CustomWebApplicationFactory<Program> factory)
-    {
-        factory
-            .WithSetting("Messaging:Transport", MessagingTransport)
-            .WithSetting("ConnectionStrings:catalogsdb", Postgres.ConnectionString)
-            .WithSetting("ConnectionStrings:catalogs-mongo", Mongo.ConnectionString);
-
-        if (UsesKafkaTransport)
-        {
-            factory.WithSetting("ConnectionStrings:kafka", Kafka.BootstrapServers);
-        }
-        else
-        {
-            factory.WithSetting("ConnectionStrings:rabbitmq", RabbitMq.ConnectionString);
-        }
-    }
-
-    protected override Task ResetStateAsync()
-    {
-        return Mongo.ResetAsync();
-    }
+    protected string MongoConnectionString => SharedFixture.MongoConnectionString;
 
     protected Task ExecuteCatalogsDbContextAsync(Func<CatalogsDbContext, Task> action)
     {

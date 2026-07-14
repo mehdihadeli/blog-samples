@@ -1,15 +1,11 @@
 using System.Net;
 using System.Net.Http.Json;
 using ECommerce.Services.Orders.Products.Models;
-using Tests.Shared.Fixtures;
 
 namespace ECommerce.Services.Orders.IntegrationTests.Products.Features.GettingImportedProducts.v1;
 
-public class GetImportedProductsTests(
-    PostgresContainerFixture postgres,
-    RabbitMqContainerFixture rabbitMq,
-    KafkaContainerFixture kafka
-) : OrdersIntegrationTestBase(postgres, rabbitMq, kafka)
+public class GetImportedProductsTests(OrdersSharedFixture sharedFixture)
+    : OrdersIntegrationTestBase(sharedFixture)
 {
     [Fact]
     public async Task GetProducts_ShouldReturnSeededImportedProduct()

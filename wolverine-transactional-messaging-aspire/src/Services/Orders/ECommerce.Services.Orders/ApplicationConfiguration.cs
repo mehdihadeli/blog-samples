@@ -38,59 +38,68 @@ public static class ApplicationConfiguration
 
         busOptions.DeadLetterQueueName ??= MessagingConstants.DeadLetterQueueName;
 
-        builder.Host.AddWolverineMessaging(
-            new WolverineIntegrationOptions
-            {
-                DurableStorageConnectionString = connectionString,
-                RabbitMqConnectionString = rabbitMqConnectionString,
-                Bus = new WolverineBusOptions
-                {
-                    ConfigureRabbitMqTopology = transport == MessagingTransportType.RabbitMq,
-                    UseDurableLocalQueues = false,
-                    UseDurableInboxOnAllListeners = useDurableInboxOnAllListeners,
-                    UseEntityFrameworkCoreTransactions =
-                        busOptions.UseEntityFrameworkCoreTransactions,
-                    UseNativeDeadLetterQueue = busOptions.UseNativeDeadLetterQueue,
-                    DeadLetterQueueName = busOptions.DeadLetterQueueName,
-                },
-            },
-            options =>
-            {
-                options.Discovery.IncludeAssembly(typeof(ApplicationConfiguration).Assembly);
+        switch (transport)
+        {
+            case MessagingTransportType.RabbitMq:
+                builder.AddWolverineRabbitMq(
+                    new WolverineRabbitMqRegistrationOptions
+                    {
+                        Common = new WolverineCommonOptions
+                        {
+                            DurableStorageConnectionString = connectionString,
+                            HandlerAssemblies = [typeof(ApplicationConfiguration).Assembly],
+                            Bus = new WolverineBusOptions
+                            {
+                                UseDurableLocalQueues = false,
+                                UseDurableInboxOnAllListeners = useDurableInboxOnAllListeners,
+                                UseEntityFrameworkCoreTransactions =
+                                    busOptions.UseEntityFrameworkCoreTransactions,
+                                UseNativeDeadLetterQueue = busOptions.UseNativeDeadLetterQueue,
+                                DeadLetterQueueName = busOptions.DeadLetterQueueName,
+                            },
+                        },
+                        RabbitMq = new WolverineRabbitMqOptions
+                        {
+                            ConnectionName = "rabbitmq",
+                            ConnectionString = rabbitMqConnectionString,
+                            ConfigureTopology = true,
+                        },
+                    },
+                    rabbitMq =>
+                        rabbitMq.Listen<MessageEnvelope<ProductCreatedV1>>(
+                            MessagingConstants.ProductCreatedQueue
+                        )
+                );
+                break;
 
-                switch (transport)
-                {
-                    case MessagingTransportType.RabbitMq:
-                        options.UseRabbitMqTransport(
-                            "rabbitmq",
-                            rabbitMq =>
-                                rabbitMq
-                                    .ListenToRabbitQueueTransport(
-                                        MessagingConstants.ProductCreatedQueue,
-                                        busOptions
-                                    )
-                                    .DefaultIncomingMessage<MessageEnvelope<ProductCreatedV1>>(),
-                            busOptions
-                        );
-                        break;
-
-                    case MessagingTransportType.Kafka:
-                        options.UseKafkaTransport(
-                            "kafka",
-                            kafka =>
-                                kafka
-                                    .ListenToKafkaTopicTransport(
-                                        MessagingConstants.ProductCreatedTopic,
-                                        MessagingConstants.OrdersProductsConsumerGroup,
-                                        busOptions
-                                    )
-                                    .DefaultIncomingMessage<MessageEnvelope<ProductCreatedV1>>(),
-                            busOptions
-                        );
-                        break;
-                }
-            }
-        );
+            case MessagingTransportType.Kafka:
+                builder.AddWolverineKafka(
+                    new WolverineKafkaRegistrationOptions
+                    {
+                        Common = new WolverineCommonOptions
+                        {
+                            DurableStorageConnectionString = connectionString,
+                            HandlerAssemblies = [typeof(ApplicationConfiguration).Assembly],
+                            Bus = new WolverineBusOptions
+                            {
+                                UseDurableLocalQueues = false,
+                                UseDurableInboxOnAllListeners = useDurableInboxOnAllListeners,
+                                UseEntityFrameworkCoreTransactions =
+                                    busOptions.UseEntityFrameworkCoreTransactions,
+                                UseNativeDeadLetterQueue = busOptions.UseNativeDeadLetterQueue,
+                                DeadLetterQueueName = busOptions.DeadLetterQueueName,
+                            },
+                        },
+                        Kafka = new WolverineKafkaOptions { ConnectionName = "kafka" },
+                    },
+                    kafka =>
+                        kafka.Listen<MessageEnvelope<ProductCreatedV1>>(
+                            MessagingConstants.ProductCreatedTopic,
+                            MessagingConstants.OrdersProductsConsumerGroup
+                        )
+                );
+                break;
+        }
 
         return builder;
     }

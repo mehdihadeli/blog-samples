@@ -1,0 +1,136 @@
+servingEngineSpec:
+  runtimeClassName: "nvidia"
+  strategy:
+    type: Recreate
+  startupProbe:
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    failureThreshold: 90
+  livenessProbe:
+    initialDelaySeconds: 30
+    periodSeconds: 15
+    failureThreshold: 6
+  readinessProbe:
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    failureThreshold: 6
+  modelSpec:
+  - name: "qwen3-06b"
+    repository: "lmcache/vllm-openai"
+    tag: "2025-05-27-v1"
+    modelURL: "Qwen/Qwen3-0.6B"
+    replicaCount: 2
+    requestCPU: 6
+    requestMemory: "24Gi"
+    limitCPU: "8"
+    limitMemory: "28Gi"
+    requestGPU: 1
+    requestGPUType: "nvidia.com/mig-2g.20gb"
+    pvcStorage: "40Gi"
+    shmSize: "8Gi"
+    env:
+    - name: HF_HOME
+      value: "/data"
+    - name: VLLM_SERVER_DEV_MODE
+      value: "0"
+    vllmConfig:
+      enablePrefixCaching: true
+      maxModelLen: 8192
+      maxNumSeqs: 64
+      gpuMemoryUtilization: 0.7
+      tensorParallelSize: 1
+      dtype: "bfloat16"
+      extraArgs:
+      - "--disable-log-requests"
+    lmcacheConfig:
+      enabled: true
+      cpuOffloadingBufferSize: "20"
+      logLevel: "INFO"
+      enableController: false
+      instanceId: "qwen3-a100"
+      controllerPort: 9000
+      controllerReplyPort: 9001
+      workerPort: 8001
+      p2pHost: "localhost"
+      p2pInitPorts: "30081"
+      workerHeartbeatTime: "30"
+
+routerSpec:
+  repository: "lmcache/lmstack-router"
+  tag: "latest"
+  routingLogic: "roundrobin"
+  prefixMinMatchLength: 0
+  engineScrapeInterval: 15
+  requestStatsWindow: 60
+  resources:
+    requests:
+      cpu: "1"
+      memory: "2Gi"
+    limits:
+      cpu: "2"
+      memory: "4Gi"
+  lmcacheConfig:
+    logLevel: "INFO"
+  # Uncomment these when routingLogic is kvaware.
+  # lmcacheControllerPort: 9000
+  # lmcacheControllerReplyPort: 9001
+  # lmcacheControllerHeartbeatPort: 9002
+
+cacheserverSpec:
+  enabled: false
+  replicaCount: 1
+  containerPort: 8000
+  servicePort: 80
+  serde: "naive"
+  l1SizeGB: 20
+  evictionPolicy: LRU
+  image:
+    repository: "lmcache/vllm-openai"
+    tag: "2025-05-27-v1"
+  resources:
+    requests:
+      cpu: "2"
+      memory: "4Gi"
+    limits:
+      cpu: "4"
+      memory: "8Gi"
+
+# Verify available MIG profiles on your A100 before applying.
+# If your host exposes a different resource name, change requestGPUType.
+#
+# Prefix-aware routing:
+# routerSpec:
+#   routingLogic: "prefixaware"
+#   prefixMinMatchLength: 256
+#
+# KV-aware routing:
+# routerSpec:
+#   routingLogic: "kvaware"
+#   lmcacheControllerPort: 9000
+#   lmcacheControllerReplyPort: 9001
+#   lmcacheControllerHeartbeatPort: 9002
+# servingEngineSpec:
+#   modelSpec:
+#     - name: "qwen3-06b"
+#       env:
+#         - name: VLLM_LOGGING_LEVEL
+#           value: "DEBUG"
+#       lmcacheConfig:
+#         enableController: true
+#         logLevel: "DEBUG"
+#
+# Shared cache:
+# cacheserverSpec:
+#   enabled: true
+#
+# Sleep mode:
+# servingEngineSpec:
+#   modelSpec:
+#     - name: "qwen3-06b"
+#       env:
+#         - name: VLLM_SERVER_DEV_MODE
+#           value: "1"
+#       vllmConfig:
+#         extraArgs:
+#           - "--disable-log-requests"
+#           - "--enable-sleep-mode"

@@ -1,0 +1,101 @@
+{{- if .Values.routerSpec.enableRouter }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-router-service
+  labels:
+    {{- include "vllm-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: router
+spec:
+  type: {{ .Values.routerSpec.serviceType }}
+  selector:
+    {{- include "vllm-stack.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: router
+  ports:
+    - name: router-port
+      port: {{ .Values.routerSpec.servicePort }}
+      targetPort: router-port
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-deployment-router
+  labels:
+    {{- include "vllm-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: router
+spec:
+  replicas: {{ .Values.routerSpec.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "vllm-stack.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: router
+  template:
+    metadata:
+      labels:
+        {{- include "vllm-stack.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: router
+    spec:
+      containers:
+        - name: router
+          image: {{ printf "%s:%s" .Values.routerSpec.repository .Values.routerSpec.tag }}
+          imagePullPolicy: {{ .Values.routerSpec.imagePullPolicy }}
+          args:
+            - --host
+            - 0.0.0.0
+            - --port
+            - {{ .Values.routerSpec.containerPort | quote }}
+            - --service-discovery
+            - {{ .Values.routerSpec.serviceDiscovery | quote }}
+            - --k8s-service-discovery-type
+            - {{ .Values.routerSpec.k8sServiceDiscoveryType | quote }}
+            - --routing-logic
+            - {{ .Values.routerSpec.routingLogic | quote }}
+            - --engine-scrape-interval
+            - {{ .Values.routerSpec.engineScrapeInterval | quote }}
+            - --request-stats-window
+            - {{ .Values.routerSpec.requestStatsWindow | quote }}
+            {{- if gt (.Values.routerSpec.prefixMinMatchLength | int) 0 }}
+            - --prefix-min-match-length
+            - {{ .Values.routerSpec.prefixMinMatchLength | quote }}
+            {{- end }}
+            {{- if .Values.routerSpec.lmcacheControllerPort }}
+            - --lmcache-controller-port
+            - {{ .Values.routerSpec.lmcacheControllerPort | quote }}
+            {{- end }}
+            {{- if .Values.routerSpec.lmcacheControllerReplyPort }}
+            - --lmcache-controller-reply-port
+            - {{ .Values.routerSpec.lmcacheControllerReplyPort | quote }}
+            {{- end }}
+            {{- if .Values.routerSpec.lmcacheControllerHeartbeatPort }}
+            - --lmcache-controller-heartbeat-port
+            - {{ .Values.routerSpec.lmcacheControllerHeartbeatPort | quote }}
+            {{- end }}
+            {{- if .Values.routerSpec.otel.endpoint }}
+            - --otel-endpoint
+            - {{ .Values.routerSpec.otel.endpoint | quote }}
+            - --otel-service-name
+            - {{ .Values.routerSpec.otel.serviceName | quote }}
+            {{- if not .Values.routerSpec.otel.secure }}
+            - --otel-insecure
+            {{- end }}
+            {{- end }}
+          ports:
+            - name: router-port
+              containerPort: {{ .Values.routerSpec.containerPort }}
+          env:
+            - name: LMCACHE_LOG_LEVEL
+              value: {{ .Values.routerSpec.lmcacheConfig.logLevel | quote }}
+            {{- range $env := .Values.routerSpec.env }}
+            - name: {{ $env.name }}
+              value: {{ $env.value | quote }}
+            {{- end }}
+          startupProbe:
+            {{- toYaml .Values.routerSpec.startupProbe | nindent 12 }}
+          livenessProbe:
+            {{- toYaml .Values.routerSpec.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.routerSpec.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.routerSpec.resources | nindent 12 }}
+{{- end }}

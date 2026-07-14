@@ -31,47 +31,61 @@ public static class ApplicationConfiguration
             builder.Configuration.GetSection("Wolverine").Get<WolverineBusOptions>()
             ?? new WolverineBusOptions();
 
-        builder.Host.AddWolverineMessaging(
-            new WolverineIntegrationOptions
-            {
-                DurableStorageConnectionString = connectionString,
-                RabbitMqConnectionString = rabbitMqConnectionString,
-                Bus = new WolverineBusOptions
-                {
-                    ConfigureRabbitMqTopology = transport == MessagingTransportType.RabbitMq,
-                    UseDurableLocalQueues = busOptions.UseDurableLocalQueues,
-                    UseEntityFrameworkCoreTransactions =
-                        busOptions.UseEntityFrameworkCoreTransactions,
-                },
-            },
-            options =>
-            {
-                options.Discovery.IncludeAssembly(typeof(ApplicationConfiguration).Assembly);
+        switch (transport)
+        {
+            case MessagingTransportType.RabbitMq:
+                builder.AddWolverineRabbitMq(
+                    new WolverineRabbitMqRegistrationOptions
+                    {
+                        Common = new WolverineCommonOptions
+                        {
+                            DurableStorageConnectionString = connectionString,
+                            HandlerAssemblies = [typeof(ApplicationConfiguration).Assembly],
+                            Bus = new WolverineBusOptions
+                            {
+                                UseDurableLocalQueues = busOptions.UseDurableLocalQueues,
+                                UseEntityFrameworkCoreTransactions =
+                                    busOptions.UseEntityFrameworkCoreTransactions,
+                            },
+                        },
+                        RabbitMq = new WolverineRabbitMqOptions
+                        {
+                            ConnectionName = "rabbitmq",
+                            ConnectionString = rabbitMqConnectionString,
+                            ConfigureTopology = true,
+                        },
+                    },
+                    rabbitMq =>
+                        rabbitMq.Publish<ECommerce.Services.Shared.Contracts.MessageEnvelope.MessageEnvelope<ECommerce.Services.Shared.Contracts.IntegrationEvents.ProductCreatedV1>>(
+                            MessagingConstants.ProductCreatedQueue
+                        )
+                );
+                break;
 
-                switch (transport)
-                {
-                    case MessagingTransportType.RabbitMq:
-                        options.UseRabbitMqTransport(
-                            "rabbitmq",
-                            rabbitMq =>
-                                rabbitMq.PublishToRabbitQueue<ECommerce.Services.Shared.Contracts.MessageEnvelope.MessageEnvelope<ECommerce.Services.Shared.Contracts.IntegrationEvents.ProductCreatedV1>>(
-                                    MessagingConstants.ProductCreatedQueue
-                                )
-                        );
-                        break;
-
-                    case MessagingTransportType.Kafka:
-                        options.UseKafkaTransport(
-                            "kafka",
-                            kafka =>
-                                kafka.PublishToKafkaTopic<ECommerce.Services.Shared.Contracts.MessageEnvelope.MessageEnvelope<ECommerce.Services.Shared.Contracts.IntegrationEvents.ProductCreatedV1>>(
-                                    MessagingConstants.ProductCreatedTopic
-                                )
-                        );
-                        break;
-                }
-            }
-        );
+            case MessagingTransportType.Kafka:
+                builder.AddWolverineKafka(
+                    new WolverineKafkaRegistrationOptions
+                    {
+                        Common = new WolverineCommonOptions
+                        {
+                            DurableStorageConnectionString = connectionString,
+                            HandlerAssemblies = [typeof(ApplicationConfiguration).Assembly],
+                            Bus = new WolverineBusOptions
+                            {
+                                UseDurableLocalQueues = busOptions.UseDurableLocalQueues,
+                                UseEntityFrameworkCoreTransactions =
+                                    busOptions.UseEntityFrameworkCoreTransactions,
+                            },
+                        },
+                        Kafka = new WolverineKafkaOptions { ConnectionName = "kafka" },
+                    },
+                    kafka =>
+                        kafka.Publish<ECommerce.Services.Shared.Contracts.MessageEnvelope.MessageEnvelope<ECommerce.Services.Shared.Contracts.IntegrationEvents.ProductCreatedV1>>(
+                            MessagingConstants.ProductCreatedTopic
+                        )
+                );
+                break;
+        }
 
         return builder;
     }

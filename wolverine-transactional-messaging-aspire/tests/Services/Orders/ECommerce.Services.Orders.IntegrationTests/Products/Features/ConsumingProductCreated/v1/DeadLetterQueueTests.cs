@@ -6,15 +6,11 @@ using ECommerce.Services.Shared.Contracts.Messaging;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Exceptions;
 using Tests.Shared.Factory;
-using Tests.Shared.Fixtures;
 
 namespace ECommerce.Services.Orders.IntegrationTests.Products.Features.ConsumingProductCreated.v1;
 
-public class DeadLetterQueueTests(
-    PostgresContainerFixture postgres,
-    RabbitMqContainerFixture rabbitMq,
-    KafkaContainerFixture kafka
-) : OrdersIntegrationTestBase(postgres, rabbitMq, kafka)
+public class DeadLetterQueueTests(OrdersSharedFixture sharedFixture)
+    : OrdersIntegrationTestBase(sharedFixture)
 {
     protected override string MessagingTransport => "rabbitmq";
 

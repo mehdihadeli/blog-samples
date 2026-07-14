@@ -5,7 +5,7 @@ using RabbitMQ.Client.Exceptions;
 
 namespace BuildingBlocks.Integration.Wolverine;
 
-internal sealed class RabbitMqTopologyProvisioningHostedService(
+public sealed class RabbitMqTopologyProvisioningHostedService(
     string connectionString,
     ILogger<RabbitMqTopologyProvisioningHostedService> logger
 ) : IHostedService

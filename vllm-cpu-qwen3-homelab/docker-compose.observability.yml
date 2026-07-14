@@ -1,4 +1,47 @@
 services:
+  vllm:
+    environment:
+      OTEL_SERVICE_NAME: vllm-cpu-qwen3
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_RESOURCE_ATTRIBUTES: service.name=vllm-cpu-qwen3,deployment.environment=homelab
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.61.0
+    container_name: vllm-cpu-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "127.0.0.1:16686:16686"
+    restart: unless-stopped
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.108.0
+    container_name: vllm-cpu-otel-collector
+    depends_on:
+      - vllm
+      - jaeger
+    command:
+      - --config=/conf/otel-collector-config.yaml
+    volumes:
+      - ./configs/otel/otel-collector-config.yaml:/conf/otel-collector-config.yaml:ro
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.3.1
+    container_name: vllm-cpu-prometheus
+    depends_on:
+      - otel-collector
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./configs/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./configs/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ./data/prometheus:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    restart: unless-stopped
+
   grafana:
     image: grafana/grafana:12.1.1
     container_name: vllm-cpu-grafana
@@ -8,7 +51,8 @@ services:
       - "127.0.0.1:3000:3000"
     volumes:
       - ./data/grafana:/var/lib/grafana
-      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./configs/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./configs/grafana/dashboards:/var/lib/grafana/dashboards:ro
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin

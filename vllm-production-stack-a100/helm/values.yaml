@@ -1,0 +1,178 @@
+servingEngineSpec:
+  enableEngine: true
+  runtimeClassName: nvidia
+  imagePullPolicy: IfNotPresent
+  containerPort: 8000
+  servicePort: 80
+  strategy:
+    type: Recreate
+  startupProbe:
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    failureThreshold: 90
+    httpGet:
+      path: /health
+      port: 8000
+  livenessProbe:
+    initialDelaySeconds: 30
+    periodSeconds: 15
+    failureThreshold: 6
+    httpGet:
+      path: /health
+      port: 8000
+  readinessProbe:
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    failureThreshold: 6
+    httpGet:
+      path: /health
+      port: 8000
+  securityContext: {}
+  containerSecurityContext: {}
+  env: []
+  modelSpec: []
+
+routerSpec:
+  enableRouter: true
+  repository: lmcache/lmstack-router
+  tag: latest
+  imagePullPolicy: IfNotPresent
+  replicaCount: 1
+  containerPort: 8000
+  servicePort: 80
+  serviceType: ClusterIP
+  serviceDiscovery: k8s
+  k8sServiceDiscoveryType: pod-ip
+  routingLogic: roundrobin
+  prefixMinMatchLength: 0
+  engineScrapeInterval: 15
+  requestStatsWindow: 60
+  resources:
+    requests:
+      cpu: "1"
+      memory: "2Gi"
+    limits:
+      cpu: "2"
+      memory: "4Gi"
+  env: []
+  otel:
+    endpoint: ""
+    serviceName: vllm-router
+    secure: false
+  lmcacheConfig:
+    logLevel: INFO
+  startupProbe:
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    failureThreshold: 12
+    httpGet:
+      path: /health
+      port: router-port
+  livenessProbe:
+    initialDelaySeconds: 30
+    periodSeconds: 5
+    failureThreshold: 3
+    httpGet:
+      path: /health
+      port: router-port
+  readinessProbe:
+    initialDelaySeconds: 30
+    periodSeconds: 5
+    failureThreshold: 3
+    httpGet:
+      path: /health
+      port: router-port
+
+cacheserverSpec:
+  enabled: false
+  replicaCount: 1
+  containerPort: 8000
+  servicePort: 80
+  serde: ""
+  l1SizeGB: 20
+  evictionPolicy: LRU
+  image:
+    repository: lmcache/vllm-openai
+    tag: latest
+  imagePullPolicy: IfNotPresent
+  env: []
+  startupProbe:
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    failureThreshold: 12
+    httpGet:
+      path: /healthcheck
+      port: http
+  livenessProbe:
+    initialDelaySeconds: 20
+    periodSeconds: 10
+    failureThreshold: 3
+    httpGet:
+      path: /healthcheck
+      port: http
+  readinessProbe:
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    failureThreshold: 6
+    httpGet:
+      path: /healthcheck
+      port: http
+  resources: {}
+
+observabilitySpec:
+  jaeger:
+    enabled: false
+    name: jaeger
+    queryServiceName: jaeger-query
+    collectorServiceName: jaeger-collector
+    image: jaegertracing/all-in-one:1.61.0
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+  otelCollector:
+    enabled: false
+    name: otel-collector
+    configMapName: otel-collector-config
+    serviceAccountName: otel-collector
+    image: otel/opentelemetry-collector-contrib:0.108.0
+    scrapeInterval: 15s
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+  prometheus:
+    enabled: false
+    name: prometheus
+    configMapName: prometheus-config
+    image: prom/prometheus:v2.54.1
+    retentionTime: 24h
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "500m"
+        memory: "1Gi"
+  grafana:
+    enabled: false
+    name: grafana
+    datasourceConfigMapName: grafana-datasources
+    dashboardProviderConfigMapName: grafana-dashboard-provider
+    dashboardConfigMapName: grafana-vllm-dashboard
+    image: grafana/grafana:11.1.4
+    adminUser: admin
+    adminPassword: admin
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"

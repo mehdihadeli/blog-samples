@@ -1,0 +1,14 @@
+{{- $prom := .Values.observabilitySpec.prometheus }}
+{{- if $prom.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $prom.configMapName }}
+  labels:
+    {{- include "vllm-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: prometheus
+data:
+  prometheus.yml: |
+{{ tpl (.Files.Get "configs/prometheus/prometheus.yml") . | indent 4 }}
+{{- end }}

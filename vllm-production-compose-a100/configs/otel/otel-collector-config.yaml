@@ -1,0 +1,48 @@
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+  prometheus:
+    config:
+      scrape_configs:
+      - job_name: vllm-router
+        scrape_interval: 15s
+        metrics_path: /metrics
+        static_configs:
+        - targets: [ router:8000 ]
+      - job_name: vllm-engine
+        scrape_interval: 15s
+        metrics_path: /metrics
+        static_configs:
+        - targets: [ engine:8000 ]
+
+processors:
+  batch:
+
+
+exporters:
+  otlp:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+  prometheusremotewrite:
+    endpoint: http://prometheus:9090/api/v1/write
+
+service:
+  extensions: [ health_check ]
+  pipelines:
+    traces:
+      receivers: [ otlp ]
+      processors: [ batch ]
+      exporters: [ otlp ]
+    metrics:
+      receivers: [ prometheus ]
+      processors: [ batch ]
+      exporters: [ prometheusremotewrite ]

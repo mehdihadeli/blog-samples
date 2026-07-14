@@ -1,0 +1,45 @@
+servingEngineSpec:
+  runtimeClassName: "nvidia"
+  modelSpec:
+  - name: "qwen3-06b"
+    repository: "lmcache/vllm-openai"
+    tag: "2025-05-27-v1"
+    modelURL: "Qwen/Qwen3-0.6B"
+    replicaCount: 1
+    requestCPU: 6
+    requestMemory: "24Gi"
+    limitCPU: "8"
+    limitMemory: "28Gi"
+    requestGPU: 1
+    requestGPUType: "nvidia.com/gpu"
+    pvcStorage: "40Gi"
+    shmSize: "8Gi"
+    env:
+    - name: HF_HOME
+      value: "/data"
+    - name: VLLM_SERVER_DEV_MODE
+      value: "0"
+    vllmConfig:
+      enablePrefixCaching: true
+      maxModelLen: 8192
+      maxNumSeqs: 64
+      gpuMemoryUtilization: 0.7
+      tensorParallelSize: 1
+      dtype: "bfloat16"
+      extraArgs:
+      - "--disable-log-requests"
+    lmcacheConfig:
+      enabled: true
+      cpuOffloadingBufferSize: "20"
+      logLevel: "INFO"
+      enableController: false
+      instanceId: "qwen3-a100"
+      controllerPort: 9000
+      controllerReplyPort: 9001
+      workerPort: 8001
+      p2pHost: "localhost"
+      p2pInitPorts: "30081"
+      workerHeartbeatTime: "30"
+
+cacheserverSpec:
+  enabled: false

@@ -12,14 +12,17 @@ It is designed for a small Linux or WSL2 host such as:
 
 ## What This Sample Includes
 
-- `docker-compose.yml` for the vLLM API and Prometheus
+- `docker-compose.yml` for the base vLLM API service
 - `docker-compose.production.yml` for an NVIDIA A100-style production baseline
-- `nginx/production.conf` for edge proxying and request rate limiting in production
+- `configs/nginx/production.conf` for edge proxying and request rate limiting in production
 - `token-gateway/` for per-user token-budget enforcement in production
-- `docker-compose.observability.yml` as an optional Grafana overlay
-- `prometheus.yml` for scraping `/metrics`
-- `alerts.yml` with starter Prometheus alert rules for this small host
-- `grafana/provisioning/datasources/prometheus.yml` for automatic Grafana wiring
+- `docker-compose.observability.yml` as an optional Prometheus, OTEL, Jaeger, and Grafana overlay
+- `configs/prometheus/prometheus.yml` for receiving OTEL Collector metrics through Prometheus remote write
+- `configs/prometheus/alerts.yml` with starter Prometheus alert rules for this small host
+- `configs/grafana/provisioning/datasources/prometheus.yml` for automatic Grafana wiring
+- `configs/grafana/provisioning/dashboards/dashboard.yml` for automatic dashboard loading
+- `configs/grafana/dashboards/vllm-observability.json` as a starter dashboard
+- `configs/otel/otel-collector-config.yaml` for OTLP trace export and Prometheus remote write
 - `client.py` as a minimal OpenAI-compatible client
 
 The sample now keeps its defaults directly in `docker-compose.yml`. That makes the setup easier to copy and run on a single-node home lab. If you want to tune it, edit the Compose file in place.
@@ -205,22 +208,31 @@ python client.py
 
 ## Optional Observability Overlay
 
-If you want dashboards as well as metrics, start the Grafana overlay too:
+If you want metrics, traces, and dashboards, start the observability overlay too:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d
 ```
 
-Grafana will be available on `http://127.0.0.1:3000` with the default login:
+The overlay adds:
+
+- Prometheus for stored metrics and alert evaluation
+- OTEL Collector receiving OTLP from vLLM and pushing metrics into Prometheus with remote write
+- Jaeger on `http://127.0.0.1:16686` for distributed traces
+- Grafana on `http://127.0.0.1:3000` with Prometheus and a starter dashboard preloaded
+
+Grafana uses the default login:
 
 - username: `admin`
 - password: `admin`
 
-This overlay is optional on purpose. Prometheus is cheap enough for this host. Grafana is useful, but it adds more moving parts and more memory pressure.
+This overlay is optional on purpose. Prometheus, OTEL Collector, Jaeger, and Grafana add useful visibility, but they also add more moving parts and more memory pressure.
+
+Generate a trace by sending one chat request, then open Jaeger and search for the `vllm-cpu-qwen3` service.
 
 ## Compose Layout
 
-The sample is split into a base stack and an optional overlay.
+The sample is split into a minimal base stack and an optional observability overlay.
 
 There is also a separate production file for future GPU deployments.
 
@@ -230,8 +242,6 @@ There is also a separate production file for future GPU deployments.
 
 - the vLLM API service
 - persistent Hugging Face cache
-- Prometheus scraping
-- alert rule loading
 
 All of the conservative defaults for this host live directly in that file:
 
@@ -263,9 +273,11 @@ Treat that file as a baseline, not a final production profile. Real production v
 
 ### Optional overlay
 
-`docker-compose.observability.yml` adds Grafana without making the base stack heavier than it needs to be.
+`docker-compose.observability.yml` adds Prometheus, OTEL Collector, Jaeger, and Grafana without making the base stack heavier than it needs to be.
 
-That is a better fit for a 16 GB node than forcing dashboards into the default path for every user.
+In the current layout, the collector uses a push model for metrics. vLLM sends OTLP telemetry to the collector, and the collector writes metrics into Prometheus with the remote-write receiver enabled.
+
+That is a better fit for a 16 GB node than forcing traces and dashboards into the default path for every user.
 
 ## Tuning Notes
 

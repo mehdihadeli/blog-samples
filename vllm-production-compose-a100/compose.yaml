@@ -1,0 +1,126 @@
+name: vllm-production-compose-a100
+
+services:
+  engine:
+    image: lmcache/vllm-openai:2025-05-27-v1
+    container_name: vllm-engine
+    hostname: engine
+    restart: unless-stopped
+    shm_size: 8gb
+    gpus: all
+    environment:
+      HF_HOME: /data
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      NVIDIA_VISIBLE_DEVICES: ${ENGINE_VISIBLE_DEVICES:-0}
+      PROMETHEUS_MULTIPROC_DIR: /tmp/vllm-prometheus
+      LMCACHE_USE_EXPERIMENTAL: "True"
+      VLLM_RPC_TIMEOUT: "1000000"
+      LMCACHE_LOG_LEVEL: INFO
+      LMCACHE_LOCAL_CPU: "True"
+      LMCACHE_MAX_LOCAL_CPU_SIZE: "20"
+      VLLM_SERVER_DEV_MODE: ${VLLM_SERVER_DEV_MODE:-0}
+      VLLM_EXTRA_ARGS: ${VLLM_EXTRA_ARGS:-}
+      LMCACHE_REMOTE_URL: ${LMCACHE_REMOTE_URL:-}
+      LMCACHE_REMOTE_SERDE: ${LMCACHE_REMOTE_SERDE:-naive}
+    volumes:
+      - ./data/huggingface:/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')",
+        ]
+      interval: 20s
+      timeout: 10s
+      retries: 12
+      start_period: 180s
+    command:
+      - /bin/sh
+      - -lc
+      - >-
+        /opt/venv/bin/vllm serve Qwen/Qwen3-0.6B
+        --host 0.0.0.0
+        --port 8000
+        --no-enable-chunked-prefill
+        --enable-prefix-caching
+        --max-model-len 8192
+        --dtype bfloat16
+        --tensor-parallel-size 1
+        --max-num-seqs 64
+        --gpu-memory-utilization 0.7
+        --disable-log-requests
+        ${VLLM_EXTRA_ARGS}
+
+  router:
+    image: lmcache/lmstack-router:latest
+    container_name: vllm-router
+    restart: unless-stopped
+    depends_on:
+      engine:
+        condition: service_healthy
+    environment:
+      PYTHONHASHSEED: "123"
+      LMCACHE_LOG_LEVEL: INFO
+      ROUTING_LOGIC: ${ROUTING_LOGIC:-roundrobin}
+      ROUTER_EXTRA_ARGS: ${ROUTER_EXTRA_ARGS:-}
+    ports:
+      - 127.0.0.1:30080:8000
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    command:
+      - /bin/sh
+      - -lc
+      - >-
+        vllm-router
+        --host 0.0.0.0
+        --port 8000
+        --service-discovery static
+        --static-backends http://engine:8000
+        --static-models Qwen/Qwen3-0.6B
+        --static-model-types completion
+        --static-backend-health-checks
+        --routing-logic ${ROUTING_LOGIC}
+        --engine-stats-interval 15
+        --request-stats-window 60
+        ${ROUTER_EXTRA_ARGS}
+
+  cache-server:
+    image: lmcache/vllm-openai:2025-05-27-v1
+    container_name: lmcache-cache-server
+    restart: unless-stopped
+    profiles: ["shared-kv"]
+    command:
+      - lmcache
+      - server
+      - --http-host
+      - 0.0.0.0
+      - --http-port
+      - "8000"
+      - --l1-size-gb
+      - "20"
+      - --eviction-policy
+      - LRU
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthcheck')",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s

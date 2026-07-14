@@ -1,6 +1,8 @@
 using System.Text.Json;
 using ECommerce.Services.Orders;
+using ECommerce.Services.Orders.Shared.Data;
 using Microsoft.AspNetCore.Http.Json;
+using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -13,6 +15,12 @@ builder.Services.Configure<JsonOptions>(options =>
 });
 
 var app = builder.Build();
+
+await using (var scope = app.Services.CreateAsyncScope())
+{
+    var dbContext = scope.ServiceProvider.GetRequiredService<OrdersDbContext>();
+    await dbContext.Database.EnsureCreatedAsync();
+}
 
 if (app.Environment.IsDevelopment())
 {

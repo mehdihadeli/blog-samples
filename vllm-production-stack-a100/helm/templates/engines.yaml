@@ -1,0 +1,157 @@
+{{- $root := . -}}
+{{- range $model := .Values.servingEngineSpec.modelSpec }}
+{{- if $root.Values.servingEngineSpec.enableEngine }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $root.Release.Name }}-engine-{{ $model.name }}
+  labels:
+    {{- include "vllm-stack.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: serving-engine
+    model: {{ $model.name }}
+spec:
+  clusterIP: None
+  selector:
+    {{- include "vllm-stack.selectorLabels" $root | nindent 4 }}
+    app.kubernetes.io/component: serving-engine
+    model: {{ $model.name }}
+  ports:
+    - name: http
+      port: {{ $root.Values.servingEngineSpec.servicePort }}
+      targetPort: http
+{{- if and $model.lmcacheConfig.enabled $model.lmcacheConfig.workerPort }}
+    - name: lmcache-worker
+      port: {{ $model.lmcacheConfig.workerPort }}
+      targetPort: lmcache-worker
+{{- end }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $root.Release.Name }}-deployment-{{ $model.name }}
+  labels:
+    {{- include "vllm-stack.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: serving-engine
+    model: {{ $model.name }}
+spec:
+  replicas: {{ $model.replicaCount }}
+  serviceName: {{ $root.Release.Name }}-engine-{{ $model.name }}
+  selector:
+    matchLabels:
+      {{- include "vllm-stack.selectorLabels" $root | nindent 6 }}
+      app.kubernetes.io/component: serving-engine
+      model: {{ $model.name }}
+  template:
+    metadata:
+      labels:
+        {{- include "vllm-stack.selectorLabels" $root | nindent 8 }}
+        app.kubernetes.io/component: serving-engine
+        model: {{ $model.name }}
+    spec:
+      {{- if $root.Values.servingEngineSpec.runtimeClassName }}
+      runtimeClassName: {{ $root.Values.servingEngineSpec.runtimeClassName }}
+      {{- end }}
+      containers:
+        - name: engine
+          image: {{ printf "%s:%s" $model.repository $model.tag }}
+          imagePullPolicy: {{ $root.Values.servingEngineSpec.imagePullPolicy }}
+          command: ["vllm"]
+          args:
+            - serve
+            - {{ $model.modelURL | quote }}
+            - --host
+            - 0.0.0.0
+            - --port
+            - {{ $root.Values.servingEngineSpec.containerPort | quote }}
+            - --tensor-parallel-size
+            - {{ $model.vllmConfig.tensorParallelSize | quote }}
+            - --dtype
+            - {{ $model.vllmConfig.dtype | quote }}
+            - --gpu-memory-utilization
+            - {{ $model.vllmConfig.gpuMemoryUtilization | quote }}
+            - --max-model-len
+            - {{ $model.vllmConfig.maxModelLen | quote }}
+            - --max-num-seqs
+            - {{ $model.vllmConfig.maxNumSeqs | quote }}
+            {{- if $model.vllmConfig.enablePrefixCaching }}
+            - --enable-prefix-caching
+            {{- end }}
+            {{- range $arg := $model.vllmConfig.extraArgs }}
+            - {{ $arg | quote }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ $root.Values.servingEngineSpec.containerPort }}
+            {{- if and $model.lmcacheConfig.enabled $model.lmcacheConfig.workerPort }}
+            - name: lmcache-worker
+              containerPort: {{ $model.lmcacheConfig.workerPort }}
+            {{- end }}
+          env:
+            {{- range $env := $root.Values.servingEngineSpec.env }}
+            - name: {{ $env.name }}
+              value: {{ $env.value | quote }}
+            {{- end }}
+            {{- range $env := $model.env }}
+            - name: {{ $env.name }}
+              value: {{ $env.value | quote }}
+            {{- end }}
+            {{- if $model.lmcacheConfig.enabled }}
+            - name: LMCACHE_ENABLED
+              value: "true"
+            - name: LMCACHE_CPU_OFFLOADING_BUFFER_SIZE
+              value: {{ $model.lmcacheConfig.cpuOffloadingBufferSize | quote }}
+            - name: LMCACHE_LOG_LEVEL
+              value: {{ $model.lmcacheConfig.logLevel | quote }}
+            - name: LMCACHE_ENABLE_CONTROLLER
+              value: {{ ternary "true" "false" (default false $model.lmcacheConfig.enableController) | quote }}
+            - name: LMCACHE_INSTANCE_ID
+              value: {{ $model.lmcacheConfig.instanceId | quote }}
+            - name: LMCACHE_CONTROLLER_PORT
+              value: {{ $model.lmcacheConfig.controllerPort | quote }}
+            - name: LMCACHE_CONTROLLER_REPLY_PORT
+              value: {{ $model.lmcacheConfig.controllerReplyPort | quote }}
+            - name: LMCACHE_WORKER_PORT
+              value: {{ $model.lmcacheConfig.workerPort | quote }}
+            - name: LMCACHE_P2P_HOST
+              value: {{ $model.lmcacheConfig.p2pHost | quote }}
+            - name: LMCACHE_P2P_INIT_PORTS
+              value: {{ $model.lmcacheConfig.p2pInitPorts | quote }}
+            - name: LMCACHE_WORKER_HEARTBEAT_TIME
+              value: {{ $model.lmcacheConfig.workerHeartbeatTime | quote }}
+            {{- end }}
+          volumeMounts:
+            - name: model-cache
+              mountPath: /data
+            - name: shm
+              mountPath: /dev/shm
+          startupProbe:
+            {{- toYaml $root.Values.servingEngineSpec.startupProbe | nindent 12 }}
+          livenessProbe:
+            {{- toYaml $root.Values.servingEngineSpec.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml $root.Values.servingEngineSpec.readinessProbe | nindent 12 }}
+          resources:
+            requests:
+              cpu: {{ $model.requestCPU | quote }}
+              memory: {{ $model.requestMemory | quote }}
+              {{ $model.requestGPUType }}: {{ $model.requestGPU }}
+            limits:
+              cpu: {{ $model.limitCPU | quote }}
+              memory: {{ $model.limitMemory | quote }}
+              {{ $model.requestGPUType }}: {{ $model.requestGPU }}
+      volumes:
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ $model.shmSize | quote }}
+  volumeClaimTemplates:
+    - metadata:
+        name: model-cache
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ $model.pvcStorage | quote }}
+{{- end }}
+{{- end }}

@@ -1,40 +1,16 @@
 using ECommerce.Services.Orders.Shared.Data;
 using Tests.Shared.Factory;
-using Tests.Shared.Fixtures;
 using Tests.Shared.TestBase;
 
 namespace ECommerce.Services.Orders.IntegrationTests;
 
 [Collection(IntegrationTestCollection.Name)]
-public abstract class OrdersIntegrationTestBase : IntegrationTestBase<Program>
+public abstract class OrdersIntegrationTestBase : IntegrationTestBase<Program, OrdersSharedFixture>
 {
-    protected OrdersIntegrationTestBase(
-        PostgresContainerFixture postgres,
-        RabbitMqContainerFixture rabbitMq,
-        KafkaContainerFixture kafka
-    )
-        : base(postgres, rabbitMq, kafka) { }
+    protected OrdersIntegrationTestBase(OrdersSharedFixture sharedFixture)
+        : base(sharedFixture) { }
 
-    protected virtual string MessagingTransport => "kafka";
-
-    protected override bool UsesKafkaTransport =>
-        string.Equals(MessagingTransport, "kafka", StringComparison.OrdinalIgnoreCase);
-
-    protected override void ConfigureFactory(CustomWebApplicationFactory<Program> factory)
-    {
-        factory
-            .WithSetting("Messaging:Transport", MessagingTransport)
-            .WithSetting("ConnectionStrings:ordersdb", Postgres.ConnectionString);
-
-        if (UsesKafkaTransport)
-        {
-            factory.WithSetting("ConnectionStrings:kafka", Kafka.BootstrapServers);
-        }
-        else
-        {
-            factory.WithSetting("ConnectionStrings:rabbitmq", RabbitMq.ConnectionString);
-        }
-    }
+    protected override string MessagingTransport => "kafka";
 
     protected Task ExecuteOrdersDbContextAsync(Func<OrdersDbContext, Task> action)
     {

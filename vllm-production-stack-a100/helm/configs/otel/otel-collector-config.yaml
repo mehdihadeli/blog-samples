@@ -1,0 +1,95 @@
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: vllm-router
+          scrape_interval: {{ .Values.observabilitySpec.otelCollector.scrapeInterval }}
+          metrics_path: /metrics
+          kubernetes_sd_configs:
+            - role: pod
+          relabel_configs:
+            - source_labels: [__meta_kubernetes_pod_phase]
+              action: keep
+              regex: Running
+            - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
+              action: keep
+              regex: router
+            - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_instance]
+              action: keep
+              regex: {{ .Release.Name }}
+            - source_labels: [__meta_kubernetes_pod_container_port_number]
+              action: keep
+              regex: 8000
+            - source_labels: [__meta_kubernetes_pod_ip]
+              action: replace
+              target_label: __address__
+              regex: (.+)
+              replacement: $1:8000
+            - source_labels: [__meta_kubernetes_namespace]
+              target_label: namespace
+            - source_labels: [__meta_kubernetes_pod_name]
+              target_label: pod
+            - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+              target_label: app
+        - job_name: vllm-engines
+          scrape_interval: {{ .Values.observabilitySpec.otelCollector.scrapeInterval }}
+          metrics_path: /metrics
+          kubernetes_sd_configs:
+            - role: pod
+          relabel_configs:
+            - source_labels: [__meta_kubernetes_pod_phase]
+              action: keep
+              regex: Running
+            - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
+              action: keep
+              regex: serving-engine
+            - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_instance]
+              action: keep
+              regex: {{ .Release.Name }}
+            - source_labels: [__meta_kubernetes_pod_container_port_number]
+              action: keep
+              regex: 8000
+            - source_labels: [__meta_kubernetes_pod_ip]
+              action: replace
+              target_label: __address__
+              regex: (.+)
+              replacement: $1:8000
+            - source_labels: [__meta_kubernetes_namespace]
+              target_label: namespace
+            - source_labels: [__meta_kubernetes_pod_name]
+              target_label: pod
+            - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+              target_label: app
+
+processors:
+  batch:
+
+exporters:
+  otlp:
+    endpoint: {{ .Values.observabilitySpec.jaeger.collectorServiceName }}:4317
+    tls:
+      insecure: true
+  prometheusremotewrite:
+    endpoint: http://{{ .Values.observabilitySpec.prometheus.name }}:9090/api/v1/write
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp]
+    metrics:
+      receivers: [prometheus]
+      processors: [batch]
+      exporters: [prometheusremotewrite]

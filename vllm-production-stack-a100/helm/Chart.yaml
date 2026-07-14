@@ -1,0 +1,6 @@
+apiVersion: v2
+name: vllm-a100-stack
+description: Self-contained Helm chart for the one-A100 vLLM production sample
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

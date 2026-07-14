@@ -3,29 +3,17 @@ using ECommerce.Services.Catalogs.Shared.Contracts;
 using ECommerce.Services.Catalogs.Shared.Data;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Tests.Shared.Factory;
-using Tests.Shared.Fixtures;
 using Wolverine;
 
 namespace ECommerce.Services.Catalogs.IntegrationTests;
 
-public class ApplicationStartupTests(
-    PostgresContainerFixture postgres,
-    RabbitMqContainerFixture rabbitMq,
-    KafkaContainerFixture kafka,
-    MongoContainerFixture mongo
-) : CatalogsIntegrationTestBase(postgres, rabbitMq, kafka, mongo)
+public class ApplicationStartupTests(CatalogsSharedFixture sharedFixture)
+    : CatalogsIntegrationTestBase(sharedFixture)
 {
     [Fact]
     public async Task AddApplicationServices_ShouldBuild_ForRabbitMq()
     {
-        await RabbitMq.EnsureStartedAsync();
-
-        using var appFactory = new CustomWebApplicationFactory<Program>()
-            .WithSetting("Messaging:Transport", "rabbitmq")
-            .WithSetting("ConnectionStrings:catalogsdb", Postgres.ConnectionString)
-            .WithSetting("ConnectionStrings:catalogs-mongo", Mongo.ConnectionString)
-            .WithSetting("ConnectionStrings:rabbitmq", RabbitMq.ConnectionString);
+        using var appFactory = SharedFixture.CreateFactory("rabbitmq");
 
         await using var scope = appFactory.Services.CreateAsyncScope();
         var configuration = scope.ServiceProvider.GetRequiredService<IConfiguration>();
@@ -39,13 +27,7 @@ public class ApplicationStartupTests(
     [Fact]
     public async Task AddApplicationServices_ShouldBuild_ForKafka()
     {
-        await Kafka.EnsureStartedAsync();
-
-        using var appFactory = new CustomWebApplicationFactory<Program>()
-            .WithSetting("Messaging:Transport", "kafka")
-            .WithSetting("ConnectionStrings:catalogsdb", Postgres.ConnectionString)
-            .WithSetting("ConnectionStrings:catalogs-mongo", Mongo.ConnectionString)
-            .WithSetting("ConnectionStrings:kafka", Kafka.BootstrapServers);
+        using var appFactory = SharedFixture.CreateFactory("kafka");
 
         await using var scope = appFactory.Services.CreateAsyncScope();
         var configuration = scope.ServiceProvider.GetRequiredService<IConfiguration>();
@@ -59,10 +41,7 @@ public class ApplicationStartupTests(
     [Fact]
     public void AddApplicationServices_ShouldThrow_ForUnsupportedTransport()
     {
-        using var appFactory = new CustomWebApplicationFactory<Program>()
-            .WithSetting("Messaging:Transport", "invalid-broker")
-            .WithSetting("ConnectionStrings:catalogsdb", Postgres.ConnectionString)
-            .WithSetting("ConnectionStrings:catalogs-mongo", Mongo.ConnectionString);
+        using var appFactory = SharedFixture.CreateFactory("invalid-broker");
 
         var exception = Record.Exception(() => _ = appFactory.Server);
 

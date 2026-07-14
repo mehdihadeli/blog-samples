@@ -1,4 +1,6 @@
 using BuildingBlocks.Integration.Wolverine.Configuration;
+using BuildingBlocks.Integration.Wolverine.Extensions;
+using Microsoft.Extensions.Hosting;
 using Wolverine;
 using Wolverine.Kafka;
 
@@ -6,6 +8,31 @@ namespace BuildingBlocks.Integration.Wolverine.Kafka;
 
 public static class WolverineOptionsKafkaExtensions
 {
+    public static IHostApplicationBuilder AddWolverineKafka(
+        this IHostApplicationBuilder builder,
+        WolverineKafkaRegistrationOptions registrationOptions,
+        Action<WolverineKafkaRegistrationBuilder>? configure = null
+    )
+    {
+        return builder.AddWolverineMessaging(
+            registrationOptions.Common,
+            options =>
+                options.UseKafkaTransport(
+                    registrationOptions.Kafka.ConnectionName,
+                    kafkaOptions =>
+                    {
+                        var registrationBuilder = new WolverineKafkaRegistrationBuilder(
+                            kafkaOptions,
+                            registrationOptions.Common.Bus
+                        );
+
+                        configure?.Invoke(registrationBuilder);
+                    },
+                    registrationOptions.Common.Bus
+                )
+        );
+    }
+
     public static WolverineOptions UseKafkaTransport(
         this WolverineOptions options,
         string connectionName,
@@ -60,5 +87,44 @@ public static class WolverineOptionsKafkaExtensions
         }
 
         return listener;
+    }
+}
+
+public sealed class WolverineKafkaRegistrationBuilder
+{
+    private readonly WolverineOptions _options;
+    private readonly WolverineBusOptions? _busOptions;
+
+    internal WolverineKafkaRegistrationBuilder(
+        WolverineOptions options,
+        WolverineBusOptions? busOptions
+    )
+    {
+        _options = options;
+        _busOptions = busOptions;
+    }
+
+    public WolverineKafkaRegistrationBuilder Publish<T>(string topicName)
+    {
+        _options.PublishToKafkaTopic<T>(topicName);
+
+        return this;
+    }
+
+    public WolverineKafkaRegistrationBuilder Listen<T>(
+        string topicName,
+        string consumerGroupId,
+        Action<KafkaListenerConfiguration>? configure = null
+    )
+    {
+        var listener = _options.ListenToKafkaTopicTransport(
+            topicName,
+            consumerGroupId,
+            _busOptions
+        );
+        listener.DefaultIncomingMessage<T>();
+        configure?.Invoke(listener);
+
+        return this;
     }
 }
