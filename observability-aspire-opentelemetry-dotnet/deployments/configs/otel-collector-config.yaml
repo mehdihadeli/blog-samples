@@ -1,0 +1,83 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+  transform/environment:
+    error_mode: ignore
+    trace_statements:
+    - context: resource
+      statements:
+      - set(attributes["environment"], "development")
+    log_statements:
+    - context: resource
+      statements:
+      - set(attributes["environment"], "development")
+    metric_statements:
+    - context: resource
+      statements:
+      - set(attributes["environment"], "development")
+
+exporters:
+  otlphttp/prometheus:
+    endpoint: "${env:PROMETHEUS_ENDPOINT}"
+    tls:
+      insecure: true
+
+  otlphttp/loki:
+    endpoint: "${env:LOKI_ENDPOINT}"
+    tls:
+      insecure: true
+
+  otlp/tempo:
+    endpoint: "${env:TEMPO_URL}"
+    tls:
+      insecure: true
+
+  otlp/aspire:
+    endpoint: "${env:ASPIRE_OTLP_ENDPOINT}"
+    headers:
+      x-otlp-api-key: "${env:ASPIRE_API_KEY}"
+    tls:
+      insecure: ${env:ASPIRE_INSECURE}
+      insecure_skip_verify: true
+
+  elasticsearch:
+    endpoints:
+    - "http://elasticsearch:9200"
+    mapping:
+      mode: otel
+    sending_queue:
+      enabled: true
+    retry:
+      enabled: true
+
+  debug:
+    verbosity: basic
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [ health_check ]
+  pipelines:
+    traces:
+      receivers: [ otlp ]
+      processors: [ batch, transform/environment ]
+      exporters: [ otlp/tempo, otlp/aspire, elasticsearch, debug ]
+    metrics:
+      receivers: [ otlp ]
+      processors: [ batch, transform/environment ]
+      exporters: [ otlphttp/prometheus, otlp/aspire, debug ]
+    logs:
+      receivers: [ otlp ]
+      processors: [ batch, transform/environment ]
+      exporters: [ otlphttp/loki, otlp/aspire, elasticsearch, debug ]

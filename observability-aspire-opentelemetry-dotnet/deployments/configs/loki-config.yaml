@@ -1,0 +1,62 @@
+# https://grafana.com/docs/loki/latest/configure/examples/configuration-examples/
+# https://grafana.com/docs/opentelemetry/collector/send-logs-to-loki/
+# https://grafana.com/docs/loki/latest/send-data/otel/
+---
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+
+common:
+  ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory
+  replication_factor: 1
+  path_prefix: /tmp/loki
+
+ingester:
+  chunk_idle_period: 10s
+  chunk_retain_period: 20s
+  max_chunk_age: 30s
+  wal:
+    enabled: true
+  lifecycler:
+    ring:
+      kvstore:
+        store: inmemory
+      replication_factor: 1
+
+compactor:
+  working_directory: /loki/compactor
+  delete_request_store: s3
+  compaction_interval: 10m
+  retention_enabled: true
+  retention_delete_delay: 2h
+  retention_delete_worker_count: 150
+
+schema_config:
+  configs:
+  - from: 2025-01-01
+    store: tsdb
+    object_store: s3
+    schema: v13
+    index:
+      prefix: index_
+      period: 24h
+
+storage_config:
+  aws:
+    endpoint: http://minio:9000
+    access_key_id: ${MINIO_USER}
+    secret_access_key: ${MINIO_PASSWORD}
+    bucketnames: loki
+    s3forcepathstyle: true
+    insecure: true
+  tsdb_shipper:
+    active_index_directory: /loki/index
+    cache_location: /loki/index_cache
+    cache_ttl: 24h
+
+limits_config:
+  allow_structured_metadata: true

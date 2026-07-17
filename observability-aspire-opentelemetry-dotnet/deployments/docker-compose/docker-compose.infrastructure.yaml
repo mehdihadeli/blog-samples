@@ -1,0 +1,265 @@
+name: aspire-shop-infrastructure
+services:
+  #######################################################
+  #  App Dependencies: Postgres & basketcache (Redis)
+  #######################################################
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    ports:
+      # PostgreSQL SQL port
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=catalogdb
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - infrastructure
+
+  basketcache:
+    image: redis/redis-stack:7.4.0-v0
+    restart: unless-stopped
+    networks:
+      - infrastructure
+    ports:
+      # Redis server port
+      - "6379:6379"
+      # Redis Stack UI port
+      - "8001:8001"
+    volumes:
+      - basketcache_data:/data
+
+  #######################################################
+  #  Observability: OpenTelemetry Collector
+  #######################################################
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.110.0
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    environment:
+      - ASPIRE_OTLP_ENDPOINT=${ASPIRE_OTLP_ENDPOINT:-host.docker.internal:16224}
+      - ASPIRE_API_KEY=${ASPIRE_API_KEY:-}
+      - ASPIRE_INSECURE=true
+      - PROMETHEUS_ENDPOINT=http://prometheus:9090/api/v1/otlp
+      - LOKI_ENDPOINT=http://loki:3100/otlp
+      - TEMPO_URL=tempo:4317
+    volumes:
+      - ./../configs/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml
+    ports:
+      # OTLP gRPC ingest from apps and services
+      - "4317:4317"
+      # OTLP HTTP ingest from apps and services
+      - "4318:4318"
+      # Collector self-telemetry metrics endpoint
+      - "8888:8888"
+      # Reserved observability endpoint for additional collector exporters
+      - "8889:8889"
+      # Collector health check endpoint
+      - "13133:13133"
+    networks:
+      - infrastructure
+
+  #######################################################
+  #  Observability: Metrics (Prometheus)
+  #######################################################
+  prometheus:
+    image: prom/prometheus:v3.3.1
+    restart: unless-stopped
+    ports:
+      # Prometheus UI and query API
+      - "9090:9090"
+    volumes:
+      - ./../configs/prometheus.yaml:/etc/prometheus/prometheus.yml
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-otlp-receiver"
+      - "--enable-feature=native-histograms"
+      - "--log.level=info"
+    networks:
+      - infrastructure
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    platform: linux/amd64
+    restart: unless-stopped
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.rootfs=/rootfs"
+      - "--path.sysfs=/host/sys"
+    ports:
+      # Node exporter metrics endpoint
+      - "9100:9100"
+    networks:
+      - infrastructure
+
+  #######################################################
+  #  Observability: S3-Compatible Storage (MinIO)
+  #######################################################
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    restart: unless-stopped
+    command:
+      - server
+      - /data
+      - --console-address
+      - :9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-minioadmin}
+      MINIO_PROMETHEUS_AUTH_TYPE: public
+    ports:
+      # MinIO S3 API
+      - "9000:9000"
+      # MinIO Console UI
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - infrastructure
+
+  minio-bucket-creator:
+    image: minio/mc:latest
+    restart: on-failure
+    entrypoint:
+      - /bin/sh
+    command:
+      - -c
+      - |
+        /usr/bin/mc alias set myminio http://minio:9000 $${MINIO_USER} $${MINIO_PASSWORD}
+        /usr/bin/mc mb myminio/loki --ignore-existing
+        /usr/bin/mc anonymous set public myminio/loki
+        /usr/bin/mc mb myminio/tempo --ignore-existing
+        /usr/bin/mc anonymous set public myminio/tempo
+        exit 0
+    environment:
+      MINIO_USER: ${MINIO_USER:-minioadmin}
+      MINIO_PASSWORD: ${MINIO_PASSWORD:-minioadmin}
+    depends_on:
+      minio:
+        condition: service_started
+    networks:
+      - infrastructure
+
+  #######################################################
+  #  Observability: Traces & Logs (Grafana Stack)
+  #######################################################
+  tempo:
+    image: grafana/tempo:2.6.0
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo.yaml", "-config.expand-env=true"]
+    environment:
+      - MINIO_USER=${MINIO_USER:-minioadmin}
+      - MINIO_PASSWORD=${MINIO_PASSWORD:-minioadmin}
+    volumes:
+      - ./../configs/tempo.yaml:/etc/tempo.yaml
+    expose:
+      # Tempo query API for Grafana
+      - "3200"
+      # Tempo OTLP gRPC ingest from collector
+      - "4317"
+    depends_on:
+      minio-bucket-creator:
+        condition: service_completed_successfully
+    networks:
+      - infrastructure
+
+  loki:
+    image: grafana/loki:3.2.0
+    restart: unless-stopped
+    command: -config.file=/etc/loki/local-config.yaml -config.expand-env=true
+    environment:
+      - MINIO_USER=${MINIO_USER:-minioadmin}
+      - MINIO_PASSWORD=${MINIO_PASSWORD:-minioadmin}
+    volumes:
+      - ./../configs/loki-config.yaml:/etc/loki/local-config.yaml
+    expose:
+      # Loki HTTP API for Grafana and OTLP log ingestion
+      - "3100"
+    depends_on:
+      minio-bucket-creator:
+        condition: service_completed_successfully
+    networks:
+      - infrastructure
+
+  grafana:
+    image: grafana/grafana:11.2.3
+    platform: linux/amd64
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_FEATURE_TOGGLES_ENABLE=traceqlEditor
+    depends_on:
+      - prometheus
+      - tempo
+      - loki
+      - elasticsearch
+    ports:
+      # Grafana UI
+      - "3000:3000"
+    volumes:
+      - ./../configs/grafana/provisioning:/etc/grafana/provisioning
+      - ./../configs/grafana/dashboards:/var/lib/grafana/dashboards
+    networks:
+      - infrastructure
+
+  #######################################################
+  #  Observability: ELK Stack (Elasticsearch & Kibana)
+  #######################################################
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.2
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - cluster.name=docker-cluster
+      - node.name=docker-node
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - xpack.security.enabled=false
+      - xpack.security.http.ssl.enabled=false
+      - xpack.security.transport.ssl.enabled=false
+      - network.host=0.0.0.0
+      - http.port=9200
+      - bootstrap.memory_lock=true
+      - cluster.routing.allocation.disk.threshold_enabled=false
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    ports:
+      # Elasticsearch REST API
+      - "9200:9200"
+      # Elasticsearch transport port
+      - "9300:9300"
+    networks:
+      - infrastructure
+
+  kibana:
+    platform: linux/amd64
+    image: docker.elastic.co/kibana/kibana:8.15.2
+    restart: unless-stopped
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      # Kibana UI
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+    networks:
+      - infrastructure
+
+networks:
+  infrastructure:
+    name: infrastructure
+    driver: bridge
+
+volumes:
+  postgres_data:
+  basketcache_data:
+  minio_data:

@@ -2,7 +2,7 @@
 
 This sample shows how to build a small e-commerce system with Wolverine, .NET Aspire, PostgreSQL, MongoDB, and a selectable RabbitMQ or Kafka transport.
 
-The solution keeps the structure intentionally close to the larger `food-delivery-microservices` codebase, but trims the building blocks down to the pieces this sample actually uses:
+The solution keeps the structure intentionally close to a larger microservices codebase, but trims the building blocks down to the pieces this sample actually uses:
 
 - two microservices: `Catalogs` and `Orders`
 - shared contracts and a reusable `MessageEnvelope<T>`
