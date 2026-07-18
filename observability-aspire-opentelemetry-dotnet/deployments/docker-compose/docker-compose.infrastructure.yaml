@@ -7,8 +7,7 @@ services:
     image: postgres:17
     restart: unless-stopped
     ports:
-      # PostgreSQL SQL port
-      - "5432:5432"
+      - "5432:5432" # PostgreSQL SQL port
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
@@ -24,10 +23,8 @@ services:
     networks:
       - infrastructure
     ports:
-      # Redis server port
-      - "6379:6379"
-      # Redis Stack UI port
-      - "8001:8001"
+      - "6379:6379" # Redis server port
+      - "8001:8001" # Redis Stack UI port
     volumes:
       - basketcache_data:/data
 
@@ -45,19 +42,15 @@ services:
       - PROMETHEUS_ENDPOINT=http://prometheus:9090/api/v1/otlp
       - LOKI_ENDPOINT=http://loki:3100/otlp
       - TEMPO_URL=tempo:4317
+      - ELASTICSEARCH_ENDPOINT=http://elasticsearch:9200
     volumes:
       - ./../configs/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml
     ports:
-      # OTLP gRPC ingest from apps and services
-      - "4317:4317"
-      # OTLP HTTP ingest from apps and services
-      - "4318:4318"
-      # Collector self-telemetry metrics endpoint
-      - "8888:8888"
-      # Reserved observability endpoint for additional collector exporters
-      - "8889:8889"
-      # Collector health check endpoint
-      - "13133:13133"
+      - "4317:4317" # OTLP gRPC ingest from apps and services
+      - "4318:4318" # OTLP HTTP ingest from apps and services
+      - "8888:8888" # Collector self-telemetry metrics endpoint
+      - "8889:8889" # Reserved observability endpoint for additional collector exporters
+      - "13133:13133" # Collector health check endpoint
     networks:
       - infrastructure
 
@@ -68,8 +61,7 @@ services:
     image: prom/prometheus:v3.3.1
     restart: unless-stopped
     ports:
-      # Prometheus UI and query API
-      - "9090:9090"
+      - "9090:9090" # Prometheus UI and query API
     volumes:
       - ./../configs/prometheus.yaml:/etc/prometheus/prometheus.yml
     command:
@@ -94,8 +86,7 @@ services:
       - "--path.rootfs=/rootfs"
       - "--path.sysfs=/host/sys"
     ports:
-      # Node exporter metrics endpoint
-      - "9100:9100"
+      - "9100:9100" # Node exporter metrics endpoint
     networks:
       - infrastructure
 
@@ -115,10 +106,8 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-minioadmin}
       MINIO_PROMETHEUS_AUTH_TYPE: public
     ports:
-      # MinIO S3 API
-      - "9000:9000"
-      # MinIO Console UI
-      - "9001:9001"
+      - "9000:9000" # MinIO S3 API
+      - "9001:9001" # MinIO Console UI
     volumes:
       - minio_data:/data
     networks:
@@ -160,10 +149,8 @@ services:
     volumes:
       - ./../configs/tempo.yaml:/etc/tempo.yaml
     expose:
-      # Tempo query API for Grafana
-      - "3200"
-      # Tempo OTLP gRPC ingest from collector
-      - "4317"
+      - "3200" # Tempo query API for Grafana
+      - "4317" # Tempo OTLP gRPC ingest from collector
     depends_on:
       minio-bucket-creator:
         condition: service_completed_successfully
@@ -180,8 +167,7 @@ services:
     volumes:
       - ./../configs/loki-config.yaml:/etc/loki/local-config.yaml
     expose:
-      # Loki HTTP API for Grafana and OTLP log ingestion
-      - "3100"
+      - "3100" # Loki HTTP API for Grafana and OTLP log ingestion
     depends_on:
       minio-bucket-creator:
         condition: service_completed_successfully
@@ -202,8 +188,7 @@ services:
       - loki
       - elasticsearch
     ports:
-      # Grafana UI
-      - "3000:3000"
+      - "3000:3000" # Grafana UI
     volumes:
       - ./../configs/grafana/provisioning:/etc/grafana/provisioning
       - ./../configs/grafana/dashboards:/var/lib/grafana/dashboards
@@ -233,10 +218,10 @@ services:
         soft: -1
         hard: -1
     ports:
-      # Elasticsearch REST API
-      - "9200:9200"
-      # Elasticsearch transport port
-      - "9300:9300"
+      - "9200:9200" # Elasticsearch REST API
+      - "9300:9300" # Elasticsearch transport port
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
     networks:
       - infrastructure
 
@@ -247,8 +232,7 @@ services:
     environment:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
     ports:
-      # Kibana UI
-      - "5601:5601"
+      - "5601:5601" # Kibana UI
     depends_on:
       - elasticsearch
     networks:
@@ -263,3 +247,4 @@ volumes:
   postgres_data:
   basketcache_data:
   minio_data:
+  elasticsearch_data:

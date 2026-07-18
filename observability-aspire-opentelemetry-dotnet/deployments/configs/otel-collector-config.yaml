@@ -51,7 +51,7 @@ exporters:
 
   elasticsearch:
     endpoints:
-    - "http://elasticsearch:9200"
+    - "${env:ELASTICSEARCH_ENDPOINT}"
     mapping:
       mode: otel
     sending_queue:
