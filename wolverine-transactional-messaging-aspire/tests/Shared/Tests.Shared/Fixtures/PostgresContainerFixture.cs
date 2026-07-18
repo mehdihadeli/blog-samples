@@ -22,7 +22,7 @@ public sealed class PostgresContainerFixture : IAsyncLifetime
 
     public string ConnectionString => Container.GetConnectionString();
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         await Container.StartAsync();
     }
@@ -52,7 +52,7 @@ public sealed class PostgresContainerFixture : IAsyncLifetime
         await _respawner.ResetAsync(connection);
     }
 
-    public async Task DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         await Container.DisposeAsync();
     }

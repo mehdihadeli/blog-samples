@@ -26,7 +26,7 @@ public sealed class MongoContainerFixture : IAsyncLifetime
         }
     }
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         await Container.StartAsync();
     }
@@ -37,7 +37,7 @@ public sealed class MongoContainerFixture : IAsyncLifetime
         await client.DropDatabaseAsync(DatabaseName, cancellationToken);
     }
 
-    public async Task DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         await Container.DisposeAsync();
     }

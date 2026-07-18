@@ -36,14 +36,14 @@ public abstract class IntegrationTestBase<TEntryPoint, TSharedFixture> : IAsyncL
             "The test application factory is not initialized for the current test."
         );
 
-    public virtual async Task InitializeAsync()
+    public virtual async ValueTask InitializeAsync()
     {
         await SharedFixture.ResetAsync(MessagingTransport);
         _factory = SharedFixture.CreateFactory(MessagingTransport, ConfigureFactory);
         await ResetStateAsync();
     }
 
-    public virtual async Task DisposeAsync()
+    public virtual async ValueTask DisposeAsync()
     {
         if (_factory is not null)
         {

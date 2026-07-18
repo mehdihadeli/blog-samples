@@ -75,12 +75,9 @@ public sealed class RabbitMqContainerFixture : IAsyncLifetime
         }
     }
 
-    public Task InitializeAsync()
-    {
-        return Task.CompletedTask;
-    }
+    public ValueTask InitializeAsync() => ValueTask.CompletedTask;
 
-    public async Task DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         if (_started)
         {

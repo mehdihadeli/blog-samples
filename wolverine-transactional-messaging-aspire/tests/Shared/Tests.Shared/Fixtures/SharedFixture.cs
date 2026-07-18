@@ -41,7 +41,7 @@ public abstract class SharedFixture<TEntryPoint> : IAsyncLifetime
             "No Wolverine tracked session is available for the current test action."
         );
 
-    public virtual async Task InitializeAsync()
+    public virtual async ValueTask InitializeAsync()
     {
         await Postgres.InitializeAsync();
         await RabbitMq.InitializeAsync();
@@ -53,7 +53,7 @@ public abstract class SharedFixture<TEntryPoint> : IAsyncLifetime
         }
     }
 
-    public virtual async Task DisposeAsync()
+    public virtual async ValueTask DisposeAsync()
     {
         if (Mongo is not null)
         {
