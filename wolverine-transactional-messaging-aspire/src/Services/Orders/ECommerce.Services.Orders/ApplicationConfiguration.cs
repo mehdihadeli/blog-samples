@@ -62,13 +62,9 @@ public static class ApplicationConfiguration
                         {
                             ConnectionName = "rabbitmq",
                             ConnectionString = rabbitMqConnectionString,
-                            ConfigureTopology = true,
                         },
                     },
-                    rabbitMq =>
-                        rabbitMq.Listen<MessageEnvelope<ProductCreatedV1>>(
-                            MessagingConstants.ProductCreatedQueue
-                        )
+                    rabbitMq => rabbitMq.ConfigureOrdersConsumeTopology()
                 );
                 break;
 

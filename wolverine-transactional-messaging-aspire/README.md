@@ -110,6 +110,111 @@ The current test suite covers:
 
 The integration tests use one shared base per service, keep both broker fixtures available, and switch the active transport by overriding `Messaging:Transport` plus the matching connection string. That keeps the test layout aligned with the application slices instead of splitting the suite into RabbitMQ-only and Kafka-only class hierarchies.
 
+## RabbitMQ topology approaches
+
+The `WolverineRabbitMqRegistrationBuilder` (returned by `AddWolverineRabbitMq`) exposes all major RabbitMQ topology patterns. Below is a summary of each approach, how to use it from the builder, and a link to the corresponding Wolverine docs.
+
+| #   | Approach                               | Builder method                                                                                                                                       | When to use                                                                                                    |
+| --- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| 1   | **Conventional Routing**               | `UseConventionalRouting(configure?)` / `UseConventionalRouting(NamingSource, configure?)`                                                            | Auto-create fanout exchange + queue per message/handler type. Best for rapid development or modular monoliths. |
+| 2   | **[Direct Queue Publish/Listen]**      | `Publish<T>(queue)` + `Listen<T>(queue)`                                                                                                             | Fixed producer-consumer pair. No topology declaration needed — works out of the box with `AutoProvision()`.    |
+| 3   | **Publish via Routing Key**            | `PublishToExchange<T>(exchange)` + `DeclareQueue()` + `BindQueue()`                                                                                  | Explicit routing key topology. Publish to exchange, bind queue with key.                                       |
+| 4   | **Topic Exchange Binding**             | `PublishToExchange<T>(exchange)` + `DeclareExchange(name, ex => ex.ExchangeType = ExchangeType.Topic)` + `BindQueue()`                               | Multi-consumer routing by wildcard pattern.                                                                    |
+| 5   | **Headers Exchange Binding**           | `PublishToExchange<T>(exchange)` + `DeclareExchange(name, ex => ex.ExchangeType = ExchangeType.Headers)` + `BindQueue()` + `WithTransport(t => ...)` | Routing by header values instead of routing keys.                                                              |
+| 6   | **Declarative Topology**               | `DeclareExchange() / DeclareQueue() / BindQueue() / BindExchangeToExchange()`                                                                        | Pre-declare all infrastructure. Works with `AutoProvision()` for startup validation.                           |
+| 7   | **Custom `IMessageRoutingConvention`** | `WithTransport(t => t.UseConventionalRouting<MyConvention>())`                                                                                       | Full control over routing logic. Implement `IMessageRoutingConvention` for bespoke topology generation.        |
+
+> **Wolverine docs**: https://wolverinefx.net/guide/messaging/transports/rabbitmq/conventional-routing.html  
+> **Wolverine subscriptions**: https://wolverinefx.net/guide/messaging/subscriptions.html
+
+### Quick-reference builder API
+
+```csharp
+public sealed class WolverineRabbitMqRegistrationBuilder
+{
+    // #2 — Direct queue publish / listen (Approach 2)
+    builder.Publish<T>("queue-name");
+    builder.Listen<T>("queue-name", configureListener?);
+
+    // #1 — Conventional routing (Approach 1)
+    builder.UseConventionalRouting();
+    builder.UseConventionalRouting(NamingSource.FromHandlerType, conventions =>
+    {
+        conventions.ExchangeNameForSending(type => $"ex.{type.Name}");
+        conventions.QueueNameForListener(type => $"queue.{type.Name}");
+        conventions.ConfigureListeners((listener, ctx) =>
+        {
+            listener.BindToExchange<MyMessage>(ExchangeType.Topic, "events.*");
+        });
+        conventions.ConfigureSending((sending, ctx) =>
+        {
+            sending.RoutingKey("my-routing-key");
+        });
+        conventions.IncludeTypes(t => t.Namespace?.StartsWith("MyApp") == true);
+        conventions.UseNaming(NamingSource.FromHandlerType);
+    });
+
+    // #4 — Publish to named exchange (Approaches 3-5)
+    builder.PublishToExchange<T>("exchange-name");
+
+    // #6 — Declarative topology (Approach 6)
+    builder.DeclareExchange("orders", ex => ex.ExchangeType = ExchangeType.Topic);
+    builder.DeclareQueue("orders.standard", q => q.BindDeadLetterQueue("orders.standard.dlq"));
+    builder.BindQueue("orders.standard", "orders", "standard.*");
+    builder.BindExchangeToExchange("source", "dest", "routing-key");
+
+    // #7 — Raw transport access (escape hatch)
+    builder.WithTransport(t => t.DeclareExchange("custom"));
+}
+```
+
+### Per-service topology pattern
+
+For larger codebases where each microservice owns its message topology, organize configuration extension methods per service:
+
+```csharp
+// BuildingBlocks/WolverineRabbitMqTopologyExtensions.cs
+
+internal static class WolverineRabbitMqTopologyExtensions
+{
+    // Catalogs publishes ProductCreatedV1 via conventional routing
+    internal static WolverineRabbitMqRegistrationBuilder
+        ConfigureCatalogsPublishTopology(
+            this WolverineRabbitMqRegistrationBuilder builder)
+        => builder
+            .UseConventionalRouting(conventions =>
+            {
+                conventions.ExchangeNameForSending(
+                    type => $"ecommerce.{type.Name}");
+            });
+
+    // Orders subscribes via a topic exchange binding
+    internal static WolverineRabbitMqRegistrationBuilder
+        ConfigureOrdersConsumeTopology(
+            this WolverineRabbitMqRegistrationBuilder builder)
+        => builder
+            .DeclareExchange("ecommerce.events",
+                ex => ex.ExchangeType = ExchangeType.Topic)
+            .DeclareQueue("orders.incoming")
+            .BindQueue("orders.incoming", "ecommerce.events", "product.*")
+            .PublishToExchange<ProductCreatedV1>("ecommerce.events");
+}
+
+// Catalogs/Program.cs or ApplicationConfiguration.cs
+builder.AddWolverineRabbitMq(registrationOptions, rabbit =>
+{
+    rabbit.ConfigureCatalogsPublishTopology();
+});
+
+// Orders/Program.cs or ApplicationConfiguration.cs
+builder.AddWolverineRabbitMq(registrationOptions, rabbit =>
+{
+    rabbit.ConfigureOrdersConsumeTopology();
+});
+```
+
+This pattern keeps topology rules colocated with each service's domain and enables reuse across environments.
+
 ## Reference docs
 
 When reading the sample beside the article, these Wolverine docs are the most relevant:

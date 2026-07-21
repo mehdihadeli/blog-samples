@@ -53,7 +53,6 @@ datasources:
   uid: elasticsearch-uid
   jsonData:
     index: "logs-generic-default"
-    esVersion: "8.15.2"
     timeField: "@timestamp"
     maxConcurrentShardRequests: 10
     logMessageField: "body_text"

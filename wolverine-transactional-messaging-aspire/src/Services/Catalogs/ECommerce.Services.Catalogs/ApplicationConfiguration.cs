@@ -52,13 +52,9 @@ public static class ApplicationConfiguration
                         {
                             ConnectionName = "rabbitmq",
                             ConnectionString = rabbitMqConnectionString,
-                            ConfigureTopology = true,
                         },
                     },
-                    rabbitMq =>
-                        rabbitMq.Publish<ECommerce.Services.Shared.Contracts.MessageEnvelope.MessageEnvelope<ECommerce.Services.Shared.Contracts.IntegrationEvents.ProductCreatedV1>>(
-                            MessagingConstants.ProductCreatedQueue
-                        )
+                    rabbitMq => rabbitMq.ConfigureCatalogsPublishTopology()
                 );
                 break;
 
