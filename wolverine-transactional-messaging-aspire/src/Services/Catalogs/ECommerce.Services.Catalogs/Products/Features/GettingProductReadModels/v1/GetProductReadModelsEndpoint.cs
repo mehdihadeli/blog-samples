@@ -1,5 +1,5 @@
-using ECommerce.Services.Catalogs.Shared.Contracts;
 using ECommerce.Services.Catalogs.Shared.ReadModels;
+using MediatR;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -20,20 +20,20 @@ internal static class GetProductReadModelsEndpoint
     }
 
     private static async Task<Ok<IReadOnlyList<ProductReadModel>>> GetAll(
-        IProductReadRepository repository,
+        ISender sender,
         CancellationToken cancellationToken
     )
     {
-        return TypedResults.Ok(await repository.GetAllAsync(cancellationToken));
+        return TypedResults.Ok(await sender.Send(new GetProductReadModels(), cancellationToken));
     }
 
     private static async Task<Results<Ok<ProductReadModel>, NotFound>> GetById(
         Guid id,
-        IProductReadRepository repository,
+        ISender sender,
         CancellationToken cancellationToken
     )
     {
-        var readModel = await repository.GetByIdAsync(id, cancellationToken);
+        var readModel = await sender.Send(new GetProductReadModelById(id), cancellationToken);
         return readModel is null ? TypedResults.NotFound() : TypedResults.Ok(readModel);
     }
 }

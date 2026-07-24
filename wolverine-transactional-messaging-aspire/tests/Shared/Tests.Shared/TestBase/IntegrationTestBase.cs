@@ -3,82 +3,36 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
-using Tests.Shared.Factory;
 using Tests.Shared.Fixtures;
-using Xunit;
 
 namespace Tests.Shared.TestBase;
 
-public abstract class IntegrationTestBase<TEntryPoint, TSharedFixture> : IAsyncLifetime
+public abstract class IntegrationTestBase<TEntryPoint, TSharedFixture>(TSharedFixture sharedFixture)
+    : IAsyncLifetime
     where TEntryPoint : class
     where TSharedFixture : SharedFixture<TEntryPoint>
 {
-    private CustomWebApplicationFactory<TEntryPoint>? _factory;
+    protected IServiceScope Scope => field ??= SharedFixture.ServiceProvider.CreateScope();
 
-    protected IntegrationTestBase(TSharedFixture sharedFixture)
-    {
-        SharedFixture = sharedFixture;
-    }
-
-    protected TSharedFixture SharedFixture { get; }
-
-    protected PostgresContainerFixture Postgres => SharedFixture.Postgres;
-
-    protected RabbitMqContainerFixture RabbitMq => SharedFixture.RabbitMq;
-
-    protected KafkaContainerFixture Kafka => SharedFixture.Kafka;
-
-    protected virtual string MessagingTransport => "rabbitmq";
-
-    protected CustomWebApplicationFactory<TEntryPoint> Factory =>
-        _factory
-        ?? throw new InvalidOperationException(
-            "The test application factory is not initialized for the current test."
-        );
+    protected TSharedFixture SharedFixture { get; } = sharedFixture;
 
     public virtual async ValueTask InitializeAsync()
     {
-        await SharedFixture.ResetAsync(MessagingTransport);
-        _factory = SharedFixture.CreateFactory(MessagingTransport, ConfigureFactory);
+        await SharedFixture.ResetAsync();
         await ResetStateAsync();
     }
 
     public virtual async ValueTask DisposeAsync()
     {
-        if (_factory is not null)
-        {
-            await _factory.DisposeAsync();
-            _factory = null;
-        }
+        Scope.Dispose();
     }
-
-    protected virtual void ConfigureFactory(CustomWebApplicationFactory<TEntryPoint> factory) { }
 
     protected virtual Task ResetStateAsync() => Task.CompletedTask;
-
-    protected Task ShouldPublish<T>()
-        where T : class
-    {
-        return SharedFixture.ShouldPublish<T>();
-    }
-
-    protected Task ShouldConsume<T>()
-        where T : class
-    {
-        return SharedFixture.ShouldConsume<T>();
-    }
-
-    protected Task ShouldConsume<TMessage, TConsumedBy>()
-        where TMessage : class
-        where TConsumedBy : class
-    {
-        return SharedFixture.ShouldConsume<TMessage, TConsumedBy>();
-    }
 
     protected async Task ExecuteDbContextAsync<TContext>(Func<TContext, Task> action)
         where TContext : DbContext
     {
-        await using var scope = Factory.Services.CreateAsyncScope();
+        await using var scope = SharedFixture.ServiceProvider.CreateAsyncScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<TContext>();
         await EnsureSchemaCreatedAsync(dbContext);
         await action(dbContext);
@@ -89,7 +43,7 @@ public abstract class IntegrationTestBase<TEntryPoint, TSharedFixture> : IAsyncL
     )
         where TContext : DbContext
     {
-        await using var scope = Factory.Services.CreateAsyncScope();
+        await using var scope = SharedFixture.ServiceProvider.CreateAsyncScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<TContext>();
         await EnsureSchemaCreatedAsync(dbContext);
         return await action(dbContext);

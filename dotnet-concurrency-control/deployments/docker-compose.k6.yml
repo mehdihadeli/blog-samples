@@ -1,0 +1,64 @@
+# k6 Performance Test Runner for Concurrency Control Demo
+#
+# Extends the main docker-compose.yaml with a k6 service.
+# Runs performance tests against the 3 API instances via YARP gateway.
+#
+# How to use:
+#   docker compose -f ../docker-compose.yaml -f docker-compose.k6.yml up -d
+#   docker compose -f ../docker-compose.yaml -f docker-compose.k6.yml run --rm k6-low-contention
+#   docker compose -f ../docker-compose.yaml -f docker-compose.k6.yml run --rm k6-medium-contention
+#   docker compose -f ../docker-compose.yaml -f docker-compose.k6.yml run --rm k6-flash-sale
+#   docker compose -f ../docker-compose.yaml -f docker-compose.k6.yml run --rm k6-locallock-breakage
+
+services:
+  k6-low-contention:
+    image: grafana/k6:latest
+    container_name: k6-low-contention
+    profiles:
+      - k6
+    volumes:
+      - ./k6:/scripts
+    environment:
+      - TARGET_ENV=docker
+    command: run /scripts/scenarios/low-contention.js
+    depends_on:
+      - gateway
+
+  k6-medium-contention:
+    image: grafana/k6:latest
+    container_name: k6-medium-contention
+    profiles:
+      - k6
+    volumes:
+      - ./k6:/scripts
+    environment:
+      - TARGET_ENV=docker
+    command: run /scripts/scenarios/medium-contention.js
+    depends_on:
+      - gateway
+
+  k6-flash-sale:
+    image: grafana/k6:latest
+    container_name: k6-flash-sale
+    profiles:
+      - k6
+    volumes:
+      - ./k6:/scripts
+    environment:
+      - TARGET_ENV=docker
+    command: run /scripts/scenarios/flash-sale.js
+    depends_on:
+      - gateway
+
+  k6-locallock-breakage:
+    image: grafana/k6:latest
+    container_name: k6-locallock-breakage
+    profiles:
+      - k6
+    volumes:
+      - ./k6:/scripts
+    environment:
+      - TARGET_ENV=docker
+    command: run /scripts/scenarios/locallock-breakage.js
+    depends_on:
+      - gateway

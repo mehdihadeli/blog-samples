@@ -15,10 +15,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Aspire.Hosting.Kafka" Version="9.3.1" />
-    <PackageReference Include="Aspire.Hosting.MongoDB" Version="9.3.1" />
-    <PackageReference Include="Aspire.Hosting.PostgreSQL" Version="9.3.1" />
-    <PackageReference Include="Aspire.Hosting.RabbitMQ" Version="9.3.1" />
+    <PackageReference Include="Aspire.Hosting.Kafka" />
+    <PackageReference Include="Aspire.Hosting.MongoDB" />
+    <PackageReference Include="Aspire.Hosting.PostgreSQL" />
+    <PackageReference Include="Aspire.Hosting.RabbitMQ" />
   </ItemGroup>
 
 </Project>

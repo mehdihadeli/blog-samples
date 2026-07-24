@@ -1,9 +1,9 @@
-using ECommerce.Services.Orders.Shared.Data;
+using ECommerce.Services.Orders.Products.Dtos.v1;
+using MediatR;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Routing;
-using Microsoft.EntityFrameworkCore;
 
 namespace ECommerce.Services.Orders.Products.Features.GettingImportedProductById.v1;
 
@@ -18,30 +18,18 @@ internal static class GetImportedProductByIdEndpoint
 
     private static async Task<Results<Ok<ImportedProductDetailsResponse>, NotFound>> Handle(
         Guid id,
-        OrdersDbContext dbContext,
+        ISender sender,
         CancellationToken cancellationToken
     )
     {
-        var product = await dbContext.ImportedProducts.SingleOrDefaultAsync(
-            x => x.Id == id,
-            cancellationToken
-        );
+        var productDto = await sender.Send(new GetImportedProductById(id), cancellationToken);
 
-        if (product is null)
+        if (productDto is null)
         {
             return TypedResults.NotFound();
         }
 
-        return TypedResults.Ok(
-            new ImportedProductDetailsResponse(
-                product.Id,
-                product.Code,
-                product.Name,
-                product.Price,
-                product.SourceCreatedAtUtc,
-                product.ReceivedAtUtc
-            )
-        );
+        return TypedResults.Ok(ImportedProductDetailsResponse.From(productDto));
     }
 }
 
@@ -52,4 +40,17 @@ internal sealed record ImportedProductDetailsResponse(
     decimal Price,
     DateTime SourceCreatedAtUtc,
     DateTime ReceivedAtUtc
-);
+)
+{
+    public static ImportedProductDetailsResponse From(ImportedProductDto dto)
+    {
+        return new ImportedProductDetailsResponse(
+            dto.Id,
+            dto.Code,
+            dto.Name,
+            dto.Price,
+            dto.SourceCreatedAtUtc,
+            dto.ReceivedAtUtc
+        );
+    }
+}

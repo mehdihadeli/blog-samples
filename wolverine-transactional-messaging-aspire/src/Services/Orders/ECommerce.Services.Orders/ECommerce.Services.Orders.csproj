@@ -8,7 +8,11 @@
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.2" />
+    <PackageReference Include="MediatR" />
+    <PackageReference Include="FluentValidation" />
+    <PackageReference Include="FluentValidation.DependencyInjectionExtensions" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
     <ProjectReference Include="..\..\..\BuildingBlocks\BuildingBlocks.Integration.Wolverine\BuildingBlocks.Integration.Wolverine.csproj" />
     <ProjectReference Include="..\..\..\BuildingBlocks\BuildingBlocks.Integration.Wolverine.Kafka\BuildingBlocks.Integration.Wolverine.Kafka.csproj" />
     <ProjectReference Include="..\..\..\BuildingBlocks\BuildingBlocks.Integration.Wolverine.RabbitMQ\BuildingBlocks.Integration.Wolverine.RabbitMQ.csproj" />

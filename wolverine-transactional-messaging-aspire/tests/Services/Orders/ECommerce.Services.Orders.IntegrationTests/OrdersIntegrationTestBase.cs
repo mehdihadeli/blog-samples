@@ -1,5 +1,4 @@
 using ECommerce.Services.Orders.Shared.Data;
-using Tests.Shared.Factory;
 using Tests.Shared.TestBase;
 
 namespace ECommerce.Services.Orders.IntegrationTests;
@@ -10,7 +9,10 @@ public abstract class OrdersIntegrationTestBase : IntegrationTestBase<Program, O
     protected OrdersIntegrationTestBase(OrdersSharedFixture sharedFixture)
         : base(sharedFixture) { }
 
-    protected override string MessagingTransport => "kafka";
+    protected override async Task ResetStateAsync()
+    {
+        await ExecuteOrdersDbContextAsync(_ => Task.CompletedTask);
+    }
 
     protected Task ExecuteOrdersDbContextAsync(Func<OrdersDbContext, Task> action)
     {

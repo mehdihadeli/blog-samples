@@ -1,31 +1,18 @@
-using System.Text.Json;
 using ECommerce.Services.Catalogs;
-using Microsoft.AspNetCore.Http.Json;
+using ECommerce.Services.Catalogs.Shared.Extensions.HostApplicationBuilderExtensions;
+using ECommerce.Services.Catalogs.Shared.Extensions.WebApplicationExtensions;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
+builder.AddInfrastructure();
 builder.AddApplicationServices();
-builder.Services.AddOpenApi();
-builder.Services.Configure<JsonOptions>(options =>
-{
-    options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
-});
 
 var app = builder.Build();
 
-if (app.Environment.IsDevelopment())
-{
-    app.MapOpenApi();
-}
-
-app.MapGet(
-    "/",
-    () => Results.Ok(new { service = CatalogsMetadata.ModuleName, status = "running" })
-);
+app.UseDefaultServices();
+app.UseInfrastructure();
 app.MapApplicationEndpoints();
 app.MapDefaultEndpoints();
 
 app.Run();
-
-public partial class Program;

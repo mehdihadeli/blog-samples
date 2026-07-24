@@ -1,10 +1,9 @@
-using ECommerce.Services.Catalogs.Products.Models;
-using ECommerce.Services.Catalogs.Shared.Data;
+using ECommerce.Services.Catalogs.Products.Dtos.v1;
+using MediatR;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Routing;
-using Microsoft.EntityFrameworkCore;
 
 namespace ECommerce.Services.Catalogs.Products.Features.GettingProductById.v1;
 
@@ -19,21 +18,18 @@ internal static class GetProductByIdEndpoint
 
     private static async Task<Results<Ok<ProductDetailsResponse>, NotFound>> Handle(
         Guid id,
-        CatalogsDbContext dbContext,
+        ISender sender,
         CancellationToken cancellationToken
     )
     {
-        var product = await dbContext.Products.SingleOrDefaultAsync(
-            x => x.Id == id,
-            cancellationToken
-        );
+        var productDto = await sender.Send(new GetProductById(id), cancellationToken);
 
-        if (product is null)
+        if (productDto is null)
         {
             return TypedResults.NotFound();
         }
 
-        return TypedResults.Ok(ProductDetailsResponse.From(product));
+        return TypedResults.Ok(ProductDetailsResponse.From(productDto));
     }
 }
 
@@ -45,14 +41,14 @@ internal sealed record ProductDetailsResponse(
     DateTime CreatedAtUtc
 )
 {
-    public static ProductDetailsResponse From(Product product)
+    public static ProductDetailsResponse From(ProductDto productDto)
     {
         return new ProductDetailsResponse(
-            product.Id,
-            product.Code,
-            product.Name,
-            product.Price,
-            product.CreatedAtUtc
+            productDto.Id,
+            productDto.Code,
+            productDto.Name,
+            productDto.Price,
+            productDto.CreatedAtUtc
         );
     }
 }

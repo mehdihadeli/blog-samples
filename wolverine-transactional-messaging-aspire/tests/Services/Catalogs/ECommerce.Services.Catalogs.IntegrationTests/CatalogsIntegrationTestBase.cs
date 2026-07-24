@@ -1,5 +1,4 @@
 using ECommerce.Services.Catalogs.Shared.Data;
-using Tests.Shared.Factory;
 using Tests.Shared.TestBase;
 
 namespace ECommerce.Services.Catalogs.IntegrationTests;
@@ -11,9 +10,10 @@ public abstract class CatalogsIntegrationTestBase
     protected CatalogsIntegrationTestBase(CatalogsSharedFixture sharedFixture)
         : base(sharedFixture) { }
 
-    protected override string MessagingTransport => "rabbitmq";
-
-    protected string MongoConnectionString => SharedFixture.MongoConnectionString;
+    protected override async Task ResetStateAsync()
+    {
+        await ExecuteCatalogsDbContextAsync(_ => Task.CompletedTask);
+    }
 
     protected Task ExecuteCatalogsDbContextAsync(Func<CatalogsDbContext, Task> action)
     {

@@ -6,24 +6,20 @@ using ECommerce.Services.Orders.TestShared;
 using ECommerce.Services.Shared.Contracts.IntegrationEvents;
 using ECommerce.Services.Shared.Contracts.MessageEnvelope;
 using Microsoft.Extensions.DependencyInjection;
-using Tests.Shared.Factory;
 
 namespace ECommerce.Services.Orders.IntegrationTests.Products.Features.ConsumingProductCreated.v1;
 
 public class ProductCreatedConsumerTests(OrdersSharedFixture sharedFixture)
     : OrdersIntegrationTestBase(sharedFixture)
 {
-    protected override string MessagingTransport => "rabbitmq";
-
     [Fact]
-    public async Task ProductCreated_ShouldPersistImportedProduct_WhenConsumedFromRabbitMq()
+    public async Task ProductCreated_ShouldPersistImportedProduct_WhenConsumed()
     {
         var message = OrdersTestData.NewProductCreatedEnvelope();
 
-        await PublishProductCreatedAsync(Factory, message);
+        await PublishProductCreatedAsync(message);
 
         var imported = await WaitForImportedProductAsync(
-            Factory,
             message.ProductId,
             TimeSpan.FromSeconds(30)
         );
@@ -36,13 +32,13 @@ public class ProductCreatedConsumerTests(OrdersSharedFixture sharedFixture)
     }
 
     [Fact]
-    public async Task ProductCreated_ShouldExposeImportedProductThroughApi_WhenConsumedFromRabbitMq()
+    public async Task ProductCreated_ShouldExposeImportedProductThroughApi_WhenConsumed()
     {
         var message = OrdersTestData.NewProductCreatedEnvelope();
 
-        await PublishProductCreatedAsync(Factory, message);
+        await PublishProductCreatedAsync(message);
 
-        var importedProduct = await WaitForImportedProductResponseAsync(Factory, message.ProductId);
+        var importedProduct = await WaitForImportedProductResponseAsync(message.ProductId);
 
         Assert.NotNull(importedProduct);
         Assert.Equal(message.ProductId, importedProduct!.Id);
@@ -51,74 +47,22 @@ public class ProductCreatedConsumerTests(OrdersSharedFixture sharedFixture)
         Assert.Equal(message.Price, importedProduct.Price);
     }
 
-    [Fact]
-    public async Task ProductCreated_ShouldPersistImportedProduct_WhenConsumedFromKafka()
-    {
-        await Kafka.EnsureStartedAsync();
-        using var kafkaFactory = SharedFixture.CreateFactory("kafka");
-
-        var message = OrdersTestData.NewProductCreatedEnvelope();
-
-        await PublishProductCreatedAsync(kafkaFactory, message);
-
-        var imported = await WaitForImportedProductAsync(
-            kafkaFactory,
-            message.ProductId,
-            TimeSpan.FromSeconds(30)
-        );
-
-        Assert.NotNull(imported);
-        Assert.Equal(message.ProductId, imported!.Id);
-        Assert.Equal(message.Code, imported.Code);
-        Assert.Equal(message.Name, imported.Name);
-        Assert.Equal(message.Price, imported.Price);
-    }
-
-    [Fact]
-    public async Task ProductCreated_ShouldExposeImportedProductThroughApi_WhenConsumedFromKafka()
-    {
-        await Kafka.EnsureStartedAsync();
-        using var kafkaFactory = SharedFixture.CreateFactory("kafka");
-
-        var message = OrdersTestData.NewProductCreatedEnvelope();
-
-        await PublishProductCreatedAsync(kafkaFactory, message);
-
-        var importedProduct = await WaitForImportedProductResponseAsync(
-            kafkaFactory,
-            message.ProductId
-        );
-
-        Assert.NotNull(importedProduct);
-        Assert.Equal(message.ProductId, importedProduct!.Id);
-        Assert.Equal(message.Code, importedProduct.Code);
-        Assert.Equal(message.Name, importedProduct.Name);
-        Assert.Equal(message.Price, importedProduct.Price);
-    }
-
-    private async Task PublishProductCreatedAsync(
-        CustomWebApplicationFactory<Program> appFactory,
-        ProductCreatedEnvelopeData message
-    )
+    private async Task PublishProductCreatedAsync(ProductCreatedEnvelopeData message)
     {
         var envelope = message.ToEnvelope();
 
-        await SharedFixture.PublishMessageAsync(appFactory, envelope);
+        await SharedFixture.PublishMessageAsync(envelope);
 
-        await ShouldConsume<MessageEnvelope<ProductCreatedV1>>();
+        await SharedFixture.ShouldConsuming<MessageEnvelope<ProductCreatedV1>>();
     }
 
-    private async Task<ImportedProductResult?> WaitForImportedProductResponseAsync(
-        CustomWebApplicationFactory<Program> appFactory,
-        Guid productId
-    )
+    private async Task<ImportedProductResult?> WaitForImportedProductResponseAsync(Guid productId)
     {
-        using var client = appFactory.CreateClient();
         ImportedProductResult? importedProduct = null;
 
         await SharedFixture.WaitUntilConditionMet(async () =>
         {
-            var response = await client.GetAsync("/api/v1/orders/products");
+            var response = await SharedFixture.GuestClient.GetAsync("/api/v1/orders/products");
 
             if (response.StatusCode != HttpStatusCode.OK)
             {
@@ -134,7 +78,6 @@ public class ProductCreatedConsumerTests(OrdersSharedFixture sharedFixture)
     }
 
     private async Task<ImportedProduct?> WaitForImportedProductAsync(
-        CustomWebApplicationFactory<Program> appFactory,
         Guid productId,
         TimeSpan timeout
     )
@@ -144,7 +87,7 @@ public class ProductCreatedConsumerTests(OrdersSharedFixture sharedFixture)
         await SharedFixture.WaitUntilConditionMet(
             async () =>
             {
-                await using var scope = appFactory.Services.CreateAsyncScope();
+                await using var scope = SharedFixture.ServiceProvider.CreateAsyncScope();
                 var dbContext = scope.ServiceProvider.GetRequiredService<OrdersDbContext>();
 
                 imported = await dbContext.ImportedProducts.FindAsync([productId]);

@@ -1,0 +1,68 @@
+services:
+  gateway:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile.gateway
+    container_name: ecommerce-gateway
+    ports:
+      - "8080:8080"
+    depends_on:
+      - ecommerce-api-1
+      - ecommerce-api-2
+      - ecommerce-api-3
+    restart: unless-stopped
+
+  ecommerce-api-1: &app-base
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile.app
+    container_name: ecommerce-api-1
+    environment: &app-env
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=ecommerce;Username=ecommerce;Password=ecommerce"
+      ConnectionStrings__Redis: "redis:6379,abortConnect=false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
+  ecommerce-api-2:
+    <<: *app-base
+    container_name: ecommerce-api-2
+
+  ecommerce-api-3:
+    <<: *app-base
+    container_name: ecommerce-api-3
+
+  postgres:
+    image: postgres:17
+    container_name: ecommerce-postgres
+    environment:
+      POSTGRES_USER: ecommerce
+      POSTGRES_PASSWORD: ecommerce
+      POSTGRES_DB: ecommerce
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ecommerce"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis/redis-stack:7.4.0-v0
+    container_name: ecommerce-redis
+    ports:
+      - "6379:6379" # Redis
+      - "8001:8001" # RedisInsight UI
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:

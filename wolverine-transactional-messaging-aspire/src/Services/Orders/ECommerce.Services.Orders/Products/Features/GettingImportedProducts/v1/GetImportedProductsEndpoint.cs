@@ -1,9 +1,9 @@
-using ECommerce.Services.Orders.Shared.Data;
+using ECommerce.Services.Orders.Products.Dtos.v1;
+using MediatR;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Routing;
-using Microsoft.EntityFrameworkCore;
 
 namespace ECommerce.Services.Orders.Products.Features.GettingImportedProducts.v1;
 
@@ -17,22 +17,15 @@ internal static class GetImportedProductsEndpoint
     }
 
     private static async Task<Ok<IReadOnlyList<ImportedProductResponse>>> Handle(
-        OrdersDbContext dbContext,
+        ISender sender,
         CancellationToken cancellationToken
     )
     {
-        var products = await dbContext
-            .ImportedProducts.OrderBy(x => x.Name)
-            .Select(x => new ImportedProductResponse(
-                x.Id,
-                x.Code,
-                x.Name,
-                x.Price,
-                x.ReceivedAtUtc
-            ))
-            .ToListAsync(cancellationToken);
+        var dtos = await sender.Send(new GetImportedProducts(), cancellationToken);
 
-        return TypedResults.Ok<IReadOnlyList<ImportedProductResponse>>(products);
+        return TypedResults.Ok<IReadOnlyList<ImportedProductResponse>>(
+            dtos.Select(ImportedProductResponse.From).ToList()
+        );
     }
 }
 
@@ -42,4 +35,16 @@ internal sealed record ImportedProductResponse(
     string Name,
     decimal Price,
     DateTime ReceivedAtUtc
-);
+)
+{
+    public static ImportedProductResponse From(ImportedProductDto dto)
+    {
+        return new ImportedProductResponse(
+            dto.Id,
+            dto.Code,
+            dto.Name,
+            dto.Price,
+            dto.ReceivedAtUtc
+        );
+    }
+}

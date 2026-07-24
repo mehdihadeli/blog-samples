@@ -1,49 +1,25 @@
-using ECommerce.Services.Orders.Shared.Data;
-using Tests.Shared.Factory;
 using Tests.Shared.Fixtures;
 
 namespace ECommerce.Services.Orders.IntegrationTests;
 
-public sealed class OrdersSharedFixture : SharedFixture<Program>
+public class OrdersSharedFixture()
+    : SharedFixture<Program>(usePostgres: true, useRabbitMq: true, useKafka: true)
 {
-    protected override string DefaultTransport => "kafka";
-
-    public Task ExecuteOrdersDbContextAsync(Func<OrdersDbContext, Task> action) =>
-        ExecuteOrdersDbContextInternalAsync(action);
-
-    public Task<TResult> ExecuteOrdersDbContextAsync<TResult>(
-        Func<OrdersDbContext, Task<TResult>> action
-    ) => ExecuteOrdersDbContextInternalAsync(action);
-
-    private async Task ExecuteOrdersDbContextInternalAsync(Func<OrdersDbContext, Task> action)
+    protected override void ApplyOverrideEnvKeyValues(IDictionary<string, string> dictionary)
     {
-        using var factory = CreateFactory(DefaultTransport);
-        await ExecuteDbContextAsync(factory, action);
+        dictionary["ConnectionStrings__ordersdb"] = Postgres!.ConnectionString;
+        if (RabbitMq is not null)
+            dictionary["ConnectionStrings__rabbitmq"] = RabbitMq.ConnectionString;
+        if (Kafka is not null)
+            dictionary["ConnectionStrings__kafka"] = Kafka!.BootstrapServers;
     }
 
-    private async Task<TResult> ExecuteOrdersDbContextInternalAsync<TResult>(
-        Func<OrdersDbContext, Task<TResult>> action
-    )
+    protected override void ApplyOverrideInMemoryConfig(IDictionary<string, string> dictionary)
     {
-        using var factory = CreateFactory(DefaultTransport);
-        return await ExecuteDbContextAsync(factory, action);
-    }
-
-    protected override void ConfigureFactory(
-        CustomWebApplicationFactory<Program> factory,
-        string transport
-    )
-    {
-        factory
-            .WithSetting("Messaging:Transport", transport)
-            .WithSetting("ConnectionStrings:ordersdb", Postgres.ConnectionString);
-
-        if (string.Equals(transport, "kafka", StringComparison.OrdinalIgnoreCase))
-        {
-            factory.WithSetting("ConnectionStrings:kafka", Kafka.BootstrapServers);
-            return;
-        }
-
-        factory.WithSetting("ConnectionStrings:rabbitmq", RabbitMq.ConnectionString);
+        dictionary["ConnectionStrings:ordersdb"] = Postgres!.ConnectionString;
+        if (RabbitMq is not null)
+            dictionary["ConnectionStrings:rabbitmq"] = RabbitMq.ConnectionString;
+        if (Kafka is not null)
+            dictionary["ConnectionStrings:kafka"] = Kafka!.BootstrapServers;
     }
 }

@@ -1,29 +1,18 @@
-using ECommerce.Services.Catalogs.Shared.Data;
 using Npgsql;
-using Tests.Shared.Factory;
 using Tests.Shared.Fixtures;
 
 namespace ECommerce.Services.Catalogs.IntegrationTests;
 
-public sealed class CatalogsSharedFixture : SharedFixture<Program>
+public sealed class CatalogsSharedFixture()
+    : SharedFixture<Program>(usePostgres: true, useRabbitMq: true, useKafka: true, useMongo: true)
 {
-    public CatalogsSharedFixture()
-        : base(useMongo: true) { }
-
     public string MongoConnectionString =>
         Mongo?.ConnectionString
         ?? throw new InvalidOperationException("MongoDB fixture is not configured.");
 
-    public Task ExecuteCatalogsDbContextAsync(Func<CatalogsDbContext, Task> action) =>
-        ExecuteCatalogsDbContextInternalAsync(action);
-
-    public Task<TResult> ExecuteCatalogsDbContextAsync<TResult>(
-        Func<CatalogsDbContext, Task<TResult>> action
-    ) => ExecuteCatalogsDbContextInternalAsync(action);
-
     public async Task<int> CountOutgoingEnvelopeRowsAsync(string destinationLike)
     {
-        await using var connection = new NpgsqlConnection(Postgres.ConnectionString);
+        await using var connection = new NpgsqlConnection(Postgres!.ConnectionString);
         await connection.OpenAsync();
 
         await using var command = new NpgsqlCommand(
@@ -40,36 +29,23 @@ public sealed class CatalogsSharedFixture : SharedFixture<Program>
         return Convert.ToInt32(result);
     }
 
-    private async Task ExecuteCatalogsDbContextInternalAsync(Func<CatalogsDbContext, Task> action)
+    protected override void ApplyOverrideEnvKeyValues(IDictionary<string, string> dictionary)
     {
-        using var factory = CreateFactory(DefaultTransport);
-        await ExecuteDbContextAsync(factory, action);
+        dictionary["ConnectionStrings__catalogsdb"] = Postgres!.ConnectionString;
+        dictionary["ConnectionStrings__catalogs-mongo"] = MongoConnectionString;
+        if (RabbitMq is not null)
+            dictionary["ConnectionStrings__rabbitmq"] = RabbitMq.ConnectionString;
+        if (Kafka is not null)
+            dictionary["ConnectionStrings__kafka"] = Kafka!.BootstrapServers;
     }
 
-    private async Task<TResult> ExecuteCatalogsDbContextInternalAsync<TResult>(
-        Func<CatalogsDbContext, Task<TResult>> action
-    )
+    protected override void ApplyOverrideInMemoryConfig(IDictionary<string, string> dictionary)
     {
-        using var factory = CreateFactory(DefaultTransport);
-        return await ExecuteDbContextAsync(factory, action);
-    }
-
-    protected override void ConfigureFactory(
-        CustomWebApplicationFactory<Program> factory,
-        string transport
-    )
-    {
-        factory
-            .WithSetting("Messaging:Transport", transport)
-            .WithSetting("ConnectionStrings:catalogsdb", Postgres.ConnectionString)
-            .WithSetting("ConnectionStrings:catalogs-mongo", MongoConnectionString);
-
-        if (string.Equals(transport, "kafka", StringComparison.OrdinalIgnoreCase))
-        {
-            factory.WithSetting("ConnectionStrings:kafka", Kafka.BootstrapServers);
-            return;
-        }
-
-        factory.WithSetting("ConnectionStrings:rabbitmq", RabbitMq.ConnectionString);
+        dictionary["ConnectionStrings:catalogsdb"] = Postgres!.ConnectionString;
+        dictionary["ConnectionStrings:catalogs-mongo"] = MongoConnectionString;
+        if (RabbitMq is not null)
+            dictionary["ConnectionStrings:rabbitmq"] = RabbitMq.ConnectionString;
+        if (Kafka is not null)
+            dictionary["ConnectionStrings:kafka"] = Kafka!.BootstrapServers;
     }
 }

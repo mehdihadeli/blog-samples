@@ -1,5 +1,7 @@
+using BuildingBlocks.Integration.Wolverine.Abstractions;
 using BuildingBlocks.Integration.Wolverine.RabbitMQ;
 using ECommerce.Services.Shared.Contracts.IntegrationEvents;
+using ECommerce.Services.Shared.Contracts.MessageEnvelope;
 using Humanizer;
 using Wolverine.RabbitMQ;
 
@@ -7,9 +9,13 @@ namespace ECommerce.Services.Catalogs;
 
 /// <summary>
 /// Catalogs' RabbitMQ topology — publishes integration events.
-/// Two approaches available:
-/// - Option 1 (preferred, active): Explicit per-message-type binding (MassTransit attached sample style)
-/// - Option 2 (commented): Wolverine conventional routing (auto-discovery, less boilerplate)
+///
+/// Demonstrates two coexisting approaches:
+/// - <b>Explicit per-type</b> for <c>ProductCreatedV1</c> (Topic exchange)
+/// - <b>Conventional routing</b> for <c>OrderSubmittedV1</c> (auto-discovered)
+///
+/// The <c>IncludeTypes</c> filter excludes <c>ProductCreatedV1</c> from the
+/// convention to avoid duplicate publisher declarations.
 /// </summary>
 public static class WolverineRabbitMqCatalogsTopologyExtensions
 {
@@ -20,26 +26,34 @@ public static class WolverineRabbitMqCatalogsTopologyExtensions
         this WolverineRabbitMqRegistrationBuilder builder
     )
     {
-        // ── Option 1 (preferred): Explicit per-message-type topology ──
-        // Transparent, debuggable topology. Repeat per message type.
-        // Matches MassTransit attached sample (Message/Publish/Send per type).
-        // Names derived via Humanizer.Underscore() — same as attached sample.
+        // ── Explicit: ProductCreatedV1 → Topic exchange ─────────────
+        // Routing key pattern: product_created_v1 (matches listener binding).
 
-        builder.PublishToExchange<ProductCreatedV1>(nameof(ProductCreatedV1).Underscore());
+        builder.PublishToExchange<MessageEnvelope<ProductCreatedV1>>(
+            nameof(ProductCreatedV1).Underscore()
+        );
         builder.DeclareExchange(
             nameof(ProductCreatedV1).Underscore(),
-            ex => ex.ExchangeType = ExchangeType.Direct
+            ex => ex.ExchangeType = ExchangeType.Topic
         );
 
-        // ── Option 2: Wolverine conventional routing ──
-        // Auto-discovers IIntegrationEvent types — less boilerplate
-        // but topology is implicit (harder to trace).
-        //
-        // builder.UseSnakeCaseConventions(conventions =>
-        // {
-        //     conventions.IncludeTypes(type => typeof(IIntegrationEvent).IsAssignableFrom(type));
-        //     conventions.ConfigureSending((ex, _) => ex.ExchangeType(ExchangeType.Direct));
-        // });
+        // ── Conventional routing: handles OrderSubmittedV1 ──────────
+        // Auto-discovers IWolverineMessageEnvelope types and creates
+        // topic exchanges with snake_case naming.
+        // Explicitly excludes ProductCreatedV1 to avoid duplicate publisher.
+
+        builder.UseSnakeCaseConventions(conventions =>
+        {
+            conventions.IncludeTypes(type =>
+                typeof(IWolverineMessageEnvelope).IsAssignableFrom(type)
+                && !(
+                    type.IsGenericType
+                    && type.GetGenericTypeDefinition() == typeof(MessageEnvelope<>)
+                    && type.GetGenericArguments()[0] == typeof(ProductCreatedV1)
+                )
+            );
+            conventions.ConfigureSending((ex, _) => ex.ExchangeType(ExchangeType.Topic));
+        });
 
         return builder;
     }

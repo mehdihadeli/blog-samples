@@ -27,8 +27,7 @@ public class GetImportedProductsTests(OrdersSharedFixture sharedFixture)
             await dbContext.SaveChangesAsync();
         });
 
-        using var client = Factory.CreateClient();
-        var response = await client.GetAsync("/api/v1/orders/products");
+        var response = await SharedFixture.GuestClient.GetAsync("/api/v1/orders/products");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 

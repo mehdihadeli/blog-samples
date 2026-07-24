@@ -1,147 +1,289 @@
+using System.Net.Http.Headers;
+using BuildingBlocks.Abstractions.Messages;
 using BuildingBlocks.Integration.Wolverine.Abstractions;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Storage;
+using ECommerce.Services.Shared.Contracts.MessageEnvelope;
+using MediatR;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Npgsql;
+using Shouldly;
 using Tests.Shared.Factory;
-using Tests.Shared.TestBase;
 using Wolverine;
 using Wolverine.Tracking;
-using Xunit;
+using Xunit.Sdk;
 
 namespace Tests.Shared.Fixtures;
 
-public abstract class SharedFixture<TEntryPoint> : IAsyncLifetime
+public abstract class SharedFixture<TEntryPoint>(
+    bool usePostgres = false,
+    bool useRabbitMq = false,
+    bool useKafka = false,
+    bool useMongo = false
+) : IAsyncLifetime
     where TEntryPoint : class
 {
-    private readonly bool _useMongo;
+    private readonly IMessageSink? _messageSink;
     private ITrackedSession? _lastTrackedSession;
+    private CustomWebApplicationFactory<TEntryPoint>? _factory;
+    public IServiceProvider ServiceProvider => field ??= Factory.Services;
 
-    protected SharedFixture(bool useMongo = false)
+    public IConfiguration Configuration =>
+        field ??= ServiceProvider.GetRequiredService<IConfiguration>();
+    public IHttpContextAccessor HttpContextAccessor =>
+        field ??= ServiceProvider.GetRequiredService<IHttpContextAccessor>();
+
+    public PostgresContainerFixture? Postgres { get; } =
+        usePostgres ? new PostgresContainerFixture() : null;
+
+    public RabbitMqContainerFixture? RabbitMq { get; } =
+        useRabbitMq ? new RabbitMqContainerFixture() : null;
+
+    public KafkaContainerFixture? Kafka { get; } = useKafka ? new KafkaContainerFixture() : null;
+
+    public MongoContainerFixture? Mongo { get; } = useMongo ? new MongoContainerFixture() : null;
+
+    public HttpClient GuestClient
     {
-        _useMongo = useMongo;
-        if (_useMongo)
+        get
         {
-            Mongo = new MongoContainerFixture();
+            if (field == null)
+            {
+                field = Factory.CreateClient();
+                // Set the media type of the request to JSON - we need this for getting problem details result for all http calls because problem details just return response for request with media type JSON
+                field.DefaultRequestHeaders.Accept.Add(
+                    new MediaTypeWithQualityHeaderValue("application/json")
+                );
+            }
+
+            return field;
         }
     }
 
-    public PostgresContainerFixture Postgres { get; } = new();
+    private CustomWebApplicationFactory<TEntryPoint> Factory => _factory ??= CreateTestFactory();
 
-    public RabbitMqContainerFixture RabbitMq { get; } = new();
-
-    public KafkaContainerFixture Kafka { get; } = new();
-
-    public MongoContainerFixture? Mongo { get; }
-
-    protected ITrackedSession LastTrackedSession =>
-        _lastTrackedSession
-        ?? throw new InvalidOperationException(
-            "No Wolverine tracked session is available for the current test action."
-        );
+    protected SharedFixture(IMessageSink messageSink)
+        : this()
+    {
+        _messageSink = messageSink;
+        _factory = CreateTestFactory();
+    }
 
     public virtual async ValueTask InitializeAsync()
     {
-        await Postgres.InitializeAsync();
-        await RabbitMq.InitializeAsync();
-        await Kafka.InitializeAsync();
-
+        if (Postgres is not null)
+            await Postgres.InitializeAsync();
+        if (RabbitMq is not null)
+            await RabbitMq.InitializeAsync();
+        if (Kafka is not null)
+            await Kafka.InitializeAsync();
         if (Mongo is not null)
-        {
             await Mongo.InitializeAsync();
-        }
     }
 
     public virtual async ValueTask DisposeAsync()
     {
         if (Mongo is not null)
-        {
             await Mongo.DisposeAsync();
-        }
-
-        await Kafka.DisposeAsync();
-        await RabbitMq.DisposeAsync();
-        await Postgres.DisposeAsync();
+        if (Kafka is not null)
+            await Kafka.DisposeAsync();
+        if (RabbitMq is not null)
+            await RabbitMq.DisposeAsync();
+        if (Postgres is not null)
+            await Postgres.DisposeAsync();
     }
 
-    public async Task ResetAsync(string transport, CancellationToken cancellationToken = default)
+    public async Task ResetAsync(CancellationToken cancellationToken = default)
     {
-        await Postgres.ResetAsync();
-
+        if (Postgres is not null)
+            await Postgres.ResetAsync();
         if (Mongo is not null)
-        {
             await Mongo.ResetAsync(cancellationToken);
-        }
-
-        if (string.Equals(transport, "kafka", StringComparison.OrdinalIgnoreCase))
+        if (Kafka is not null)
         {
             await Kafka.EnsureStartedAsync();
             await Kafka.CleanupTopicsAsync(cancellationToken);
-            return;
         }
-
-        await RabbitMq.EnsureStartedAsync();
-        await RabbitMq.CleanupQueuesAsync(cancellationToken);
+        if (RabbitMq is not null)
+        {
+            await RabbitMq.EnsureStartedAsync();
+            await RabbitMq.CleanupQueuesAsync(cancellationToken);
+        }
     }
 
-    public CustomWebApplicationFactory<TEntryPoint> CreateFactory(
-        string transport,
-        Action<CustomWebApplicationFactory<TEntryPoint>>? configure = null
-    )
+    public async Task CleanupAsync(CancellationToken cancellationToken = default)
+    {
+        if (Postgres is not null)
+            await Postgres.ResetAsync();
+        if (Mongo is not null)
+            await Mongo.ResetAsync(cancellationToken);
+        if (RabbitMq is not null)
+            await RabbitMq.CleanupQueuesAsync(cancellationToken);
+    }
+
+    private CustomWebApplicationFactory<TEntryPoint> CreateTestFactory()
     {
         var factory = new CustomWebApplicationFactory<TEntryPoint>();
-        ConfigureFactory(factory, transport);
-        configure?.Invoke(factory);
+
+        factory.WithTestConfigureServices(ApplyTestConfigureServices);
+        factory.WithTestConfigureAppConfiguration(ApplyTestConfigureAppConfiguration);
+        factory.WithTestConfiguration(ApplyTestConfiguration);
+        factory.AddOverrideEnvKeyValues(ApplyOverrideEnvKeyValues);
+        factory.AddOverrideInMemoryConfig(ApplyOverrideInMemoryConfig);
+
         return factory;
     }
 
-    public async ValueTask PublishMessageAsync<TMessage>(
-        TMessage message,
+    protected virtual void ApplyOverrideInMemoryConfig(IDictionary<string, string> dictionary) { }
+
+    protected virtual void ApplyOverrideEnvKeyValues(IDictionary<string, string> dictionary) { }
+
+    protected virtual void ApplyTestConfiguration(IConfiguration configuration) { }
+
+    protected virtual void ApplyTestConfigureAppConfiguration(
+        WebHostBuilderContext context,
+        IConfigurationBuilder builder
+    ) { }
+
+    protected virtual void ApplyTestConfigureServices(IServiceCollection collection) { }
+
+    /// <summary>
+    /// Wraps an action in a tracked session and asserts <typeparamref name="T"/> was published.
+    /// </summary>
+    public async Task ShouldPublishing<T>(
+        Func<Task> action,
         CancellationToken cancellationToken = default
     )
-        where TMessage : class
+        where T : class
     {
-        using var factory = CreateFactory(DefaultTransport);
-        await PublishMessageAsync(factory, message, cancellationToken);
+        var trackedSession = await Factory
+            .Services.TrackActivity()
+            .Timeout(TimeSpan.FromSeconds(30))
+            .ExecuteAndWaitAsync((Func<IMessageContext, Task>)(async _ => await action()));
+
+        var sentEnvelopes = trackedSession
+            .FindEnvelopesWithMessageType<T>(MessageEventType.Sent)
+            .ToArray();
+
+        trackedSession
+            .FindEnvelopesWithMessageType<Fault<T>>(MessageEventType.AutoFaultPublished)
+            .ShouldBeEmpty();
+
+        if (sentEnvelopes.Length != 0)
+        {
+            return;
+        }
+    }
+
+    /// <summary>
+    /// Wraps an action in a tracked session and asserts <typeparamref name="T"/> was sent.
+    /// </summary>
+    public async Task ShouldSending<T>(
+        Func<Task> action,
+        CancellationToken cancellationToken = default
+    )
+        where T : class
+    {
+        var trackedSession = await Factory
+            .Services.TrackActivity()
+            .Timeout(TimeSpan.FromSeconds(30))
+            .ExecuteAndWaitAsync((Func<IMessageContext, Task>)(async _ => await action()));
+
+        trackedSession.FindEnvelopesWithMessageType<T>(MessageEventType.Sent).ShouldNotBeEmpty();
+        trackedSession
+            .FindEnvelopesWithMessageType<Fault<T>>(MessageEventType.AutoFaultPublished)
+            .ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// Wraps an action in a tracked session and asserts <typeparamref name="T"/> was consumed.
+    /// </summary>
+    public async Task ShouldConsuming<T>(
+        Func<Task> action,
+        CancellationToken cancellationToken = default
+    )
+        where T : class
+    {
+        var trackedSession = await Factory
+            .Services.TrackActivity()
+            .Timeout(TimeSpan.FromSeconds(30))
+            .ExecuteAndWaitAsync((Func<IMessageContext, Task>)(async _ => await action()));
+
+        trackedSession
+            .FindEnvelopesWithMessageType<T>(MessageEventType.MessageSucceeded)
+            .ShouldNotBeEmpty();
+        trackedSession
+            .FindEnvelopesWithMessageType<Fault<T>>(MessageEventType.AutoFaultPublished)
+            .ShouldBeEmpty();
+    }
+
+    public async Task ExecuteScopeAsync(Func<IServiceProvider, Task> action)
+    {
+        await using var scope = Factory.Services.CreateAsyncScope();
+        await action(scope.ServiceProvider);
+    }
+
+    public async Task<T> ExecuteScopeAsync<T>(Func<IServiceProvider, Task<T>> action)
+    {
+        await using var scope = Factory.Services.CreateAsyncScope();
+        return await action(scope.ServiceProvider);
+    }
+
+    public async Task<TResponse> SendAsync<TResponse>(
+        IRequest<TResponse> request,
+        CancellationToken cancellationToken = default
+    )
+    {
+        return await ExecuteScopeAsync(async sp =>
+        {
+            var mediator = sp.GetRequiredService<IMediator>();
+
+            return await mediator.Send(request, cancellationToken);
+        });
     }
 
     public async ValueTask PublishMessageAsync<TMessage>(
-        CustomWebApplicationFactory<TEntryPoint> factory,
         TMessage message,
         CancellationToken cancellationToken = default
     )
-        where TMessage : class
+        where TMessage : class, BuildingBlocks.Abstractions.Messages.IMessage
     {
-        await using var scope = factory.Services.CreateAsyncScope();
-        var trackedSession = await PublishMessageInternalAsync(
-            scope.ServiceProvider,
-            message,
-            cancellationToken
-        );
+        var trackedSession = await ExecuteScopeAsync(async sp =>
+        {
+            var bus = sp.GetRequiredService<IExternalEventBus>();
+
+            return await sp.TrackActivity()
+                .ExecuteAndWaitAsync(
+                    (Func<IMessageContext, Task>)(
+                        async _ => await bus.PublishAsync(message, cancellationToken)
+                    )
+                );
+        });
 
         RememberTrackedSession(trackedSession);
     }
 
-    private static async Task<ITrackedSession> PublishMessageInternalAsync<TMessage>(
-        IServiceProvider serviceProvider,
-        TMessage message,
-        CancellationToken cancellationToken
+    public async ValueTask PublishMessageAsync<TMessage>(
+        MessageEnvelope<TMessage> messageEnvelope,
+        CancellationToken cancellationToken = default
     )
-        where TMessage : class
+        where TMessage : BuildingBlocks.Abstractions.Messages.IMessage
     {
-        var bus = serviceProvider.GetRequiredService<IExternalEventBus>();
+        var trackedSession = await ExecuteScopeAsync(async sp =>
+        {
+            var bus = sp.GetRequiredService<IExternalEventBus>();
 
-        return await serviceProvider
-            .TrackActivity()
-            .ExecuteAndWaitAsync(
-                (Func<IMessageContext, Task>)(
-                    async _ => await bus.PublishAsync(message, cancellationToken)
-                )
-            );
+            return await sp.TrackActivity()
+                .ExecuteAndWaitAsync(
+                    (Func<IMessageContext, Task>)(
+                        async _ => await bus.PublishAsync(messageEnvelope, cancellationToken)
+                    )
+                );
+        });
+
+        RememberTrackedSession(trackedSession);
     }
 
-    // Ref: https://tech.energyhelpline.com/in-memory-testing-with-message-bus-abstractions/
     public async ValueTask WaitUntilConditionMet(
         Func<Task<bool>> conditionToMet,
         int? timeoutSecond = null,
@@ -158,7 +300,7 @@ public abstract class SharedFixture<TEntryPoint> : IAsyncLifetime
             if (timeoutExpired)
             {
                 throw new TimeoutException(
-                    exception ?? $"Condition not met for the test in the '{timeoutExpired}' second."
+                    exception ?? $"Condition not met for the test in the '{timeoutSecond}' second."
                 );
             }
 
@@ -168,100 +310,84 @@ public abstract class SharedFixture<TEntryPoint> : IAsyncLifetime
         }
     }
 
-    public Task ShouldPublish<T>()
+    public async Task ShouldPublishing<T>(CancellationToken cancellationToken = default)
         where T : class
     {
-        LastTrackedSession.ShouldPublish<T>();
-        return Task.CompletedTask;
+        var trackedSession = GetTrackedSession();
+        var sentEnvelopes = trackedSession
+            .FindEnvelopesWithMessageType<T>(MessageEventType.Sent)
+            .ToArray();
+
+        trackedSession
+            .FindEnvelopesWithMessageType<Fault<T>>(MessageEventType.AutoFaultPublished)
+            .ShouldBeEmpty();
+
+        if (sentEnvelopes.Length != 0)
+        {
+            return;
+        }
     }
 
-    public Task ShouldConsume<T>()
+    public async Task ShouldSending<T>(CancellationToken cancellationToken = default)
         where T : class
     {
-        LastTrackedSession.ShouldConsume<T>();
-        return Task.CompletedTask;
+        var trackedSession = GetTrackedSession();
+
+        trackedSession.FindEnvelopesWithMessageType<T>(MessageEventType.Sent).ShouldNotBeEmpty();
+        trackedSession
+            .FindEnvelopesWithMessageType<Fault<T>>(MessageEventType.AutoFaultPublished)
+            .ShouldBeEmpty();
+
+        await Task.CompletedTask;
     }
 
-    public Task ShouldConsume<TMessage, TConsumedBy>()
+    public async Task ShouldSendingInternalCommand<T>(CancellationToken cancellationToken = default)
+        where T : class, IInternalCommand
+    {
+        var trackedSession = GetTrackedSession();
+
+        trackedSession.FindEnvelopesWithMessageType<T>(MessageEventType.Sent).ShouldNotBeEmpty();
+        trackedSession
+            .FindEnvelopesWithMessageType<Fault<T>>(MessageEventType.AutoFaultPublished)
+            .ShouldBeEmpty();
+
+        await Task.CompletedTask;
+    }
+
+    public async Task ShouldConsuming<T>(CancellationToken cancellationToken = default)
+        where T : class
+    {
+        var trackedSession = GetTrackedSession();
+
+        trackedSession
+            .FindEnvelopesWithMessageType<T>(MessageEventType.MessageSucceeded)
+            .ShouldNotBeEmpty();
+        trackedSession
+            .FindEnvelopesWithMessageType<Fault<T>>(MessageEventType.AutoFaultPublished)
+            .ShouldBeEmpty();
+
+        await Task.CompletedTask;
+    }
+
+    public async Task ShouldConsuming<TMessage, TConsumedBy>(
+        CancellationToken cancellationToken = default
+    )
         where TMessage : class
         where TConsumedBy : class
     {
-        LastTrackedSession.ShouldConsume<TMessage, TConsumedBy>();
-        return Task.CompletedTask;
+        await ShouldConsuming<TMessage>(cancellationToken);
+    }
+
+    private ITrackedSession GetTrackedSession()
+    {
+        return _lastTrackedSession
+            ?? throw new InvalidOperationException(
+                "No Wolverine tracked session is available for the current test action."
+            );
     }
 
     private void RememberTrackedSession(ITrackedSession trackedSession)
     {
         _lastTrackedSession = trackedSession;
-    }
-
-    public async Task ExecuteScopeAsync(Func<IServiceProvider, Task> action)
-    {
-        using var factory = CreateFactory(DefaultTransport);
-        await using var scope = factory.Services.CreateAsyncScope();
-        await action(scope.ServiceProvider);
-    }
-
-    public async Task<TResult> ExecuteScopeAsync<TResult>(
-        Func<IServiceProvider, Task<TResult>> action
-    )
-    {
-        using var factory = CreateFactory(DefaultTransport);
-        await using var scope = factory.Services.CreateAsyncScope();
-        return await action(scope.ServiceProvider);
-    }
-
-    protected async Task ExecuteDbContextAsync<TContext>(
-        CustomWebApplicationFactory<TEntryPoint> factory,
-        Func<TContext, Task> action
-    )
-        where TContext : DbContext
-    {
-        await using var scope = factory.Services.CreateAsyncScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<TContext>();
-        await EnsureSchemaCreatedAsync(dbContext);
-        await action(dbContext);
-    }
-
-    protected async Task<TResult> ExecuteDbContextAsync<TContext, TResult>(
-        CustomWebApplicationFactory<TEntryPoint> factory,
-        Func<TContext, Task<TResult>> action
-    )
-        where TContext : DbContext
-    {
-        await using var scope = factory.Services.CreateAsyncScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<TContext>();
-        await EnsureSchemaCreatedAsync(dbContext);
-        return await action(dbContext);
-    }
-
-    protected virtual string DefaultTransport => "rabbitmq";
-
-    protected abstract void ConfigureFactory(
-        CustomWebApplicationFactory<TEntryPoint> factory,
-        string transport
-    );
-
-    private static async Task EnsureSchemaCreatedAsync(DbContext dbContext)
-    {
-        var databaseCreator = dbContext.Database.GetService<IRelationalDatabaseCreator>();
-
-        if (!await databaseCreator.ExistsAsync())
-        {
-            await dbContext.Database.EnsureCreatedAsync();
-            return;
-        }
-
-        await dbContext.Database.EnsureCreatedAsync();
-
-        try
-        {
-            await databaseCreator.CreateTablesAsync();
-        }
-        catch (PostgresException exception)
-            when (exception.SqlState == PostgresErrorCodes.DuplicateTable)
-        {
-            // EF tables for this context already exist.
-        }
     }
 }
