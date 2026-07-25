@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>OrderSaga</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.0-rc.1.25451.107" />
+    <PackageReference Include="WolverineFx.RuntimeCompilation" Version="6.22.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Aspire\WolverineDistributed.ServiceDefaults\WolverineDistributed.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\OrderSaga\OrderSaga.csproj" />
+  </ItemGroup>
+
+</Project>

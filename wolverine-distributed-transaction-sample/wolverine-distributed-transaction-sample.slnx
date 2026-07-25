@@ -1,0 +1,37 @@
+<Solution>
+  <Folder Name="/src/" />
+  <Folder Name="/src/Aspire/WolverineDistributed.AppHost/">
+    <Project Path="src/Aspire/WolverineDistributed.AppHost/WolverineDistributed.AppHost.csproj" />
+  </Folder>
+  <Folder Name="/src/Aspire/WolverineDistributed.ServiceDefaults/">
+    <Project Path="src/Aspire/WolverineDistributed.ServiceDefaults/WolverineDistributed.ServiceDefaults.csproj" />
+  </Folder>
+  <Folder Name="/src/BuildingBlocks/BuildingBlocks.Integration.Wolverine/">
+    <Project Path="src/BuildingBlocks/BuildingBlocks.Integration.Wolverine/BuildingBlocks.Integration.Wolverine.csproj" />
+  </Folder>
+  <Folder Name="/src/Shared/Contracts/">
+    <Project Path="src/Shared/Contracts/Contracts.csproj" />
+  </Folder>
+  <Folder Name="/src/Services/OrderSaga/OrderSaga/">
+    <Project Path="src/Services/OrderSaga/OrderSaga/OrderSaga.csproj" />
+  </Folder>
+  <Folder Name="/src/Services/OrderSaga/OrderSaga.Api/">
+    <Project Path="src/Services/OrderSaga/OrderSaga.Api/OrderSaga.Api.csproj" />
+  </Folder>
+  <Folder Name="/src/Services/Payment/Payment/">
+    <Project Path="src/Services/Payment/Payment/Payment.csproj" />
+  </Folder>
+  <Folder Name="/src/Services/Payment/Payment.Api/">
+    <Project Path="src/Services/Payment/Payment.Api/Payment.Api.csproj" />
+  </Folder>
+  <Folder Name="/tests/" />
+  <Folder Name="/tests/Shared/Tests.Shared/">
+    <Project Path="tests/Shared/Tests.Shared/Tests.Shared.csproj" />
+  </Folder>
+  <Folder Name="/tests/Services/OrderSaga/OrderSaga.IntegrationTests/">
+    <Project Path="tests/Services/OrderSaga/OrderSaga.IntegrationTests/OrderSaga.IntegrationTests.csproj" />
+  </Folder>
+  <Folder Name="/tests/Services/Payment/Payment.IntegrationTests/">
+    <Project Path="tests/Services/Payment/Payment.IntegrationTests/Payment.IntegrationTests.csproj" />
+  </Folder>
+</Solution>

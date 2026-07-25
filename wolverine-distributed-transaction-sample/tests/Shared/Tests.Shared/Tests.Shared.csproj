@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Tests.Shared</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="*" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.4" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.4" />
+    <PackageReference Include="Npgsql" Version="10.0.3" />
+    <PackageReference Include="RabbitMQ.Client" Version="7.1.2" />
+    <PackageReference Include="Testcontainers.PostgreSql" Version="4.8.1" />
+    <PackageReference Include="Testcontainers.RabbitMq" Version="4.8.1" />
+    <PackageReference Include="Respawn" Version="6.2.1" />
+    <PackageReference Include="Shouldly" Version="*" />
+    <PackageReference Include="xunit.v3.extensibility.core" Version="$(XunitVersion)" />
+  </ItemGroup>
+</Project>
