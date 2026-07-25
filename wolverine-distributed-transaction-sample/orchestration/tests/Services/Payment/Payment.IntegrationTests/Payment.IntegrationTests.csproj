@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsTestProject>true</IsTestProject>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <PropertyGroup>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\src\Services\Payment\Payment.Api\Payment.Api.csproj" />
+    <ProjectReference Include="..\..\..\..\src\Services\Payment\Payment\Payment.csproj" />
+    <ProjectReference Include="..\..\..\Shared\Tests.Shared\Tests.Shared.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit.v3.mtp-v2" Version="$(XunitVersion)" />
+  </ItemGroup>
+</Project>

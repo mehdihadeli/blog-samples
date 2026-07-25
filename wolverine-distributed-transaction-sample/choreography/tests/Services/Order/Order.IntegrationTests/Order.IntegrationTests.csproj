@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsTestProject>true</IsTestProject>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <PropertyGroup>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\src\Services\Order\Order.Api\Order.Api.csproj" />
+    <ProjectReference Include="..\..\..\..\src\Services\Order\Order\Order.csproj" />
+    <ProjectReference Include="..\..\..\Shared\Tests.Shared\Tests.Shared.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.4" />
+    <PackageReference Include="xunit.v3.mtp-v2" Version="$(XunitVersion)" />
+  </ItemGroup>
+</Project>
