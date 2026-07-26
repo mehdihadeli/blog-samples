@@ -3,6 +3,7 @@ using ECommerce.Shared.Extensions.HostApplicationBuilderExtensions;
 using MediatR;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace ECommerce;
 
@@ -12,6 +13,9 @@ public static class ApplicationConfiguration
 {
     public static WebApplicationBuilder AddApplicationServices(this WebApplicationBuilder builder)
     {
+        // Aspire service defaults: OpenTelemetry, health checks, service discovery
+        builder.AddServiceDefaults();
+
         builder.AddStorage();
         builder.Services.AddMediatR(cfg =>
             cfg.RegisterServicesFromAssembly(typeof(ApplicationConfiguration).Assembly)

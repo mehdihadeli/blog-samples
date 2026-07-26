@@ -36,6 +36,14 @@ src/ECommerce.App/
         ├── RedisDistributedLockManager.cs  # RedLock via DistributedLock.Redis
         └── InMemoryDistributedLockManager.cs  # In-memory fallback (dev)
 
+src/ECommerce.AppHost/
+├── AppHost.cs                     # Aspire orchestrator: Postgres + Redis + 3 API replicas
+├── appsettings.json               # Aspire dashboard logging config
+└── Properties/launchSettings.json # Dashboard URLs
+
+src/ECommerce.ServiceDefaults/
+└── Extensions.cs                  # Shared Aspire defaults: OpenTelemetry, health checks, service discovery
+
 tests/ECommerce.IntegrationTests/
 ├── ECommerceIntegrationTestBase.cs      # Test base with multi-instance factory helpers
 ├── IntegrationTestCollection.cs
@@ -65,18 +73,28 @@ tests/ECommerce.IntegrationTests/
 
 ## Quick Start
 
-### 1. Start infrastructure
+### Option A: Run with .NET Aspire (recommended)
 
 ```bash
-cd deployments
-docker compose up -d
+# Start everything — Postgres, Redis, 3 API instances, Aspire Dashboard
+dotnet run --project src/ECommerce.AppHost/ECommerce.AppHost.csproj
 ```
 
-This starts PostgreSQL 17 on port 5432 and Redis Stack 7.4 on port 6379.
+This launches:
 
-### 2. Run the API
+- PostgreSQL 17 container
+- Redis Stack 7.4 container with Redis Commander
+- 3 API instances (independent processes, each with its own DI container)
+- Aspire Dashboard at `https://localhost:17252` with real-time telemetry, logs, metrics, and traces
+
+### Option B: Run standalone (Docker infra + single API)
 
 ```bash
+# 1. Start infrastructure
+cd deployments
+docker compose up -d
+
+# 2. Run the API
 dotnet run --project src/ECommerce.App/ECommerce.App.csproj
 ```
 
@@ -144,16 +162,73 @@ The project follows **Vertical Slice Architecture**. Each use case (DeductStock,
 
 ## Technologies
 
-| Component           | Technology                                         |
-| ------------------- | -------------------------------------------------- |
-| Runtime             | .NET 10                                            |
-| API                 | Minimal APIs + OpenAPI (built-in)                  |
-| CQRS                | MediatR                                            |
-| ORM                 | Entity Framework Core + Npgsql (PostgreSQL)        |
-| Distributed Locking | DistributedLock.Redis (RedLock)                    |
-| In-memory Store     | ConcurrentDictionary-based (dev/demo)              |
-| Integration Testing | Testcontainers (PostgreSQL + Redis), xUnit v3      |
-| Load Testing        | k6 (Grafana) — 4 scenarios for strategy validation |
+| Component           | Technology                                              |
+| ------------------- | ------------------------------------------------------- |
+| Runtime             | .NET 10                                                 |
+| API                 | Minimal APIs + OpenAPI (built-in)                       |
+| CQRS                | MediatR                                                 |
+| ORM                 | Entity Framework Core + Npgsql (PostgreSQL)             |
+| Distributed Locking | DistributedLock.Redis (RedLock)                         |
+| In-memory Store     | ConcurrentDictionary-based (dev/demo)                   |
+| Orchestration       | .NET Aspire AppHost (Postgres + Redis + 3 API replicas) |
+| Telemetry           | OpenTelemetry via Aspire ServiceDefaults + Dashboard    |
+| Integration Testing | Testcontainers (PostgreSQL + Redis), xUnit v3           |
+| Load Testing        | k6 (Grafana) — 4 scenarios for strategy validation      |
+
+## .NET Aspire Integration
+
+This project ships with a full [.NET Aspire](https://learn.microsoft.com/dotnet/aspire) setup that orchestrates all infrastructure and API instances as a single `dotnet run` command.
+
+### What Aspire Provides
+
+| Feature              | Benefit                                                                        |
+| -------------------- | ------------------------------------------------------------------------------ |
+| **Orchestration**    | Single `dotnet run` starts Postgres, Redis, and 3 API replicas                 |
+| **Dashboard**        | Real-time telemetry: distributed traces, metrics, structured logs              |
+| **Service Defaults** | OpenTelemetry, health checks, and service discovery shared across all projects |
+| **Container Mgmt**   | Postgres 17 and Redis 7.4 containers auto-provisioned with health checks       |
+| **Scale-out**        | 3 API replicas as independent processes — validates LocalLock breakage locally |
+
+### Project Structure
+
+```
+src/ECommerce.AppHost/       # Aspire orchestrator — Postgres + Redis + 3 API replicas + YARP gateway
+src/ECommerce.ServiceDefaults/  # Shared OpenTelemetry, health checks, resilience
+```
+
+### Running
+
+```bash
+# Start the entire system (no Docker Compose needed for infra)
+dotnet run --project src/ECommerce.AppHost/ECommerce.AppHost.csproj
+```
+
+The Aspire Dashboard opens at the URL shown in the console. From the dashboard you can:
+
+- View live distributed traces for each API request across all 3 instances
+- Inspect structured logs per instance
+- Monitor HTTP metrics (request rate, error rate, latency)
+- Open Redis Commander to inspect the RedLock keys
+- Open Swagger UI for any API instance
+- See the `DbUpdateConcurrencyException` crashes when testing LocalLock across replicas
+
+### LocalLock Multi-Instance Validation
+
+With the AppHost running (3 replicas), send concurrent LocalLock requests:
+
+```bash
+# Send 5 concurrent LocalLock requests
+for i in $(seq 1 5); do
+  curl -s -X POST "http://localhost:PORT/api/inventory/$ID/deduct" \
+    -H "Content-Type: application/json" \
+    -d '{"quantity":1,"strategy":"LocalLock"}' &
+done
+wait
+```
+
+Check the Aspire Dashboard for `DbUpdateConcurrencyException` traces — proof that `lock()` is process-scoped and invisible to the other 2 replicas.
+
+For the complete multi-instance experience with load balancing, use the Docker Compose setup instead, which includes the YARP gateway.
 
 ## Load Testing with k6
 
