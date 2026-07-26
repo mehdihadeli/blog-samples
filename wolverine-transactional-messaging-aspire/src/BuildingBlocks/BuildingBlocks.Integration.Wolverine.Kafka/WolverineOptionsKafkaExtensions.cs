@@ -1,4 +1,3 @@
-using BuildingBlocks.Integration.Wolverine.Abstractions;
 using BuildingBlocks.Integration.Wolverine.Configuration;
 using BuildingBlocks.Integration.Wolverine.Extensions;
 using Confluent.Kafka.Admin;
@@ -312,7 +311,11 @@ public sealed class WolverineKafkaRegistrationBuilder
 
     private static Type UnwrapEnvelope(Type type)
     {
-        if (typeof(IWolverineMessageEnvelope).IsAssignableFrom(type))
+        if (
+            typeof(global::BuildingBlocks.Abstractions.Messages.IMessageEnvelope).IsAssignableFrom(
+                type
+            )
+        )
         {
             var messageProp = type.GetProperty("Message");
             if (messageProp != null)

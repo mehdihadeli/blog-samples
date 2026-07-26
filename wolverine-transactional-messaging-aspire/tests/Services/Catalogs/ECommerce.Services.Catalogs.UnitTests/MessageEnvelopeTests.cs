@@ -1,3 +1,4 @@
+using BuildingBlocks.Abstractions.Messages;
 using ECommerce.Services.Catalogs.TestShared;
 using Tests.Shared;
 
@@ -13,9 +14,8 @@ public class MessageEnvelopeTests
 
         var envelope = SampleData.ProductCreatedEnvelope(correlationId, messageId);
 
-        Assert.Equal(messageId, envelope.MessageId);
-        Assert.Equal(correlationId, envelope.CorrelationId);
-        Assert.Equal(SampleData.CreatedAtUtc, envelope.OccurredAtUtc);
+        Assert.Equal(messageId, envelope.Metadata.MessageId);
+        Assert.Equal(correlationId, envelope.Metadata.CorrelationId);
         Assert.Equal(SampleData.ProductId, envelope.Message.ProductId);
         Assert.Equal(CatalogsTestData.ProductCode, envelope.Message.Code);
         Assert.Equal(CatalogsTestData.ProductName, envelope.Message.Name);

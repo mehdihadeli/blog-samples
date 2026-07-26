@@ -1,8 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
+using BuildingBlocks.Abstractions.Messages;
 using ECommerce.Services.Catalogs.TestShared;
 using ECommerce.Services.Shared.Contracts.IntegrationEvents;
-using ECommerce.Services.Shared.Contracts.MessageEnvelope;
 using Microsoft.EntityFrameworkCore;
 
 namespace ECommerce.Services.Catalogs.IntegrationTests.Products.Features.CreatingProduct.v1;

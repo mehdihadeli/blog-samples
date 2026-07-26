@@ -1,4 +1,4 @@
-namespace Microsoft.Extensions.Hosting;
+namespace ECommerce.ServiceDefaults;
 
 /// <summary>
 /// Maps an exception to an HTTP status code for ProblemDetails responses.

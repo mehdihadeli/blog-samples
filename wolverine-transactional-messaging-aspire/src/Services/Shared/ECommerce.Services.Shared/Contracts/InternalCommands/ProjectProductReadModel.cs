@@ -8,4 +8,8 @@ public sealed record ProjectProductReadModel(
     string Name,
     decimal Price,
     DateTime CreatedAtUtc
-) : IInternalCommand;
+) : IInternalCommand
+{
+    public Guid MessageId { get; init; } = Guid.NewGuid();
+    public DateTime Created { get; init; } = DateTime.UtcNow;
+}

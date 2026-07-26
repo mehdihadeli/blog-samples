@@ -8,4 +8,8 @@ public sealed record ProductCreatedV1(
     string Name,
     decimal Price,
     DateTime CreatedAtUtc
-) : IIntegrationEvent;
+) : IIntegrationEvent
+{
+    public Guid MessageId { get; init; } = Guid.NewGuid();
+    public DateTime Created { get; init; } = DateTime.UtcNow;
+}

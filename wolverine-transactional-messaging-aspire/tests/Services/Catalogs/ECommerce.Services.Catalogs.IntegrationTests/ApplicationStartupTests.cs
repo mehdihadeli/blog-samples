@@ -1,3 +1,4 @@
+using BuildingBlocks.Abstractions.Messages;
 using ECommerce.Services.Catalogs;
 using ECommerce.Services.Catalogs.Shared.Contracts;
 using ECommerce.Services.Catalogs.Shared.Data;
@@ -29,6 +30,10 @@ public class ApplicationStartupTests(CatalogsSharedFixture sharedFixture)
         Assert.NotNull(scope.ServiceProvider.GetRequiredService<CatalogsDbContext>());
         Assert.NotNull(scope.ServiceProvider.GetRequiredService<IProductReadRepository>());
         Assert.NotNull(scope.ServiceProvider.GetRequiredService<IMessageBus>());
+        Assert.NotNull(scope.ServiceProvider.GetRequiredService<IExternalEventBus>());
+        Assert.NotNull(scope.ServiceProvider.GetRequiredService<IBusDirectPublisher>());
+        Assert.NotNull(scope.ServiceProvider.GetRequiredService<IMessagePersistenceService>());
+        Assert.NotNull(scope.ServiceProvider.GetRequiredService<IBackgroundJobScheduler>());
         Assert.Equal(
             SharedFixture.RabbitMq!.ConnectionString,
             configuration.GetConnectionString("rabbitmq")
@@ -54,6 +59,10 @@ public class ApplicationStartupTests(CatalogsSharedFixture sharedFixture)
         Assert.NotNull(scope.ServiceProvider.GetRequiredService<CatalogsDbContext>());
         Assert.NotNull(scope.ServiceProvider.GetRequiredService<IProductReadRepository>());
         Assert.NotNull(scope.ServiceProvider.GetRequiredService<IMessageBus>());
+        Assert.NotNull(scope.ServiceProvider.GetRequiredService<IExternalEventBus>());
+        Assert.NotNull(scope.ServiceProvider.GetRequiredService<IBusDirectPublisher>());
+        Assert.NotNull(scope.ServiceProvider.GetRequiredService<IMessagePersistenceService>());
+        Assert.NotNull(scope.ServiceProvider.GetRequiredService<IBackgroundJobScheduler>());
         Assert.Equal(
             SharedFixture.Kafka!.BootstrapServers,
             configuration.GetConnectionString("kafka")

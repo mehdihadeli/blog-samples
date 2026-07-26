@@ -1,7 +1,7 @@
 using FluentValidation;
 using Microsoft.AspNetCore.Http;
 
-namespace Microsoft.Extensions.Hosting;
+namespace ECommerce.ServiceDefaults;
 
 /// <summary>
 /// Default implementation of IProblemDetailMapper that maps common .NET exceptions

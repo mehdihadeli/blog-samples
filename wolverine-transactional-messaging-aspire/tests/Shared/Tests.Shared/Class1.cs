@@ -1,5 +1,5 @@
-﻿using ECommerce.Services.Shared.Contracts.IntegrationEvents;
-using ECommerce.Services.Shared.Contracts.MessageEnvelope;
+﻿using BuildingBlocks.Abstractions.Messages;
+using ECommerce.Services.Shared.Contracts.IntegrationEvents;
 
 namespace Tests.Shared;
 
@@ -14,11 +14,10 @@ public static class SampleData
         Guid? messageId = null
     )
     {
-        return MessageEnvelope.Create(
+        return MessageEnvelopeFactory.From(
             new ProductCreatedV1(ProductId, "catalog-001", "Starter Basket", 42.50m, CreatedAtUtc),
-            correlationId,
-            messageId,
-            CreatedAtUtc
+            correlationId ?? Guid.NewGuid(),
+            causationId: null
         );
     }
 }

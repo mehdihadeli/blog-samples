@@ -1,24 +1,32 @@
-using BuildingBlocks.Integration.Wolverine.Abstractions;
+using BuildingBlocks.Abstractions.Messages;
 using Wolverine;
 
 namespace BuildingBlocks.Integration.Wolverine;
 
 internal sealed class WolverineDirectPublisher(IMessageBus bus) : IBusDirectPublisher
 {
-    public ValueTask PublishAsync<TMessage>(
-        TMessage message,
-        CancellationToken cancellationToken = default
-    )
-        where TMessage : class
+    public ValueTask PublishAsync(IMessageEnvelope messageEnvelope, CancellationToken ct = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
+        ct.ThrowIfCancellationRequested();
 
-        var deliveryOptions = WolverineDeliveryOptionsFactory.TryBuild(message);
-        if (deliveryOptions is null)
-        {
-            return bus.PublishAsync(message);
-        }
+        var deliveryOptions = WolverineDeliveryOptionsFactory.TryBuild(messageEnvelope);
 
-        return bus.PublishAsync(message, deliveryOptions);
+        return bus.PublishAsync(messageEnvelope.Message, deliveryOptions);
+    }
+
+    public ValueTask PublishAsync(
+        IMessageEnvelope messageEnvelope,
+        string? exchangeOrTopic,
+        string? queue,
+        CancellationToken ct = default
+    )
+    {
+        ct.ThrowIfCancellationRequested();
+
+        // Routing to specific exchange/topic is handled by Wolverine's
+        // type-based topology configuration at startup.
+        var deliveryOptions = WolverineDeliveryOptionsFactory.TryBuild(messageEnvelope);
+
+        return bus.PublishAsync(messageEnvelope.Message, deliveryOptions);
     }
 }

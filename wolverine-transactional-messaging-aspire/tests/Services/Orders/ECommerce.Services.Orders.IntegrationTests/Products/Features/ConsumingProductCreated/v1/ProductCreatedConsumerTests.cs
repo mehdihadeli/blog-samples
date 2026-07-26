@@ -1,11 +1,12 @@
 using System.Net;
 using System.Net.Http.Json;
+using BuildingBlocks.Abstractions.Messages;
 using ECommerce.Services.Orders.Products.Models;
 using ECommerce.Services.Orders.Shared.Data;
 using ECommerce.Services.Orders.TestShared;
 using ECommerce.Services.Shared.Contracts.IntegrationEvents;
-using ECommerce.Services.Shared.Contracts.MessageEnvelope;
 using Microsoft.Extensions.DependencyInjection;
+using Wolverine;
 
 namespace ECommerce.Services.Orders.IntegrationTests.Products.Features.ConsumingProductCreated.v1;
 
@@ -51,9 +52,16 @@ public class ProductCreatedConsumerTests(OrdersSharedFixture sharedFixture)
     {
         var envelope = message.ToEnvelope();
 
-        await SharedFixture.PublishMessageAsync(envelope);
-
-        await SharedFixture.ShouldConsuming<MessageEnvelope<ProductCreatedV1>>();
+        // Publish the envelope itself (MessageEnvelope<ProductCreatedV1>) so Wolverine
+        // routing matches PublishToExchange<MessageEnvelope<ProductCreatedV1>>.
+        // IBusDirectPublisher is NOT used here because it strips the envelope and
+        // publishes only the inner message (ProductCreatedV1), which has no route.
+        await SharedFixture.ShouldConsuming<MessageEnvelope<ProductCreatedV1>>(async () =>
+        {
+            await using var scope = SharedFixture.ServiceProvider.CreateAsyncScope();
+            var bus = scope.ServiceProvider.GetRequiredService<IMessageBus>();
+            await bus.PublishAsync(envelope);
+        });
     }
 
     private async Task<ImportedProductResult?> WaitForImportedProductResponseAsync(Guid productId)

@@ -1,6 +1,6 @@
 using Bogus;
+using BuildingBlocks.Abstractions.Messages;
 using ECommerce.Services.Shared.Contracts.IntegrationEvents;
-using ECommerce.Services.Shared.Contracts.MessageEnvelope;
 using Tests.Shared;
 
 namespace ECommerce.Services.Orders.TestShared;
@@ -39,11 +39,10 @@ public sealed record ProductCreatedEnvelopeData(
         Guid? messageId = null
     )
     {
-        return MessageEnvelope.Create(
+        return MessageEnvelopeFactory.From(
             new ProductCreatedV1(ProductId, Code, Name, Price, OccurredAtUtc),
-            correlationId,
-            messageId,
-            OccurredAtUtc
+            correlationId ?? Guid.NewGuid(),
+            causationId: null
         );
     }
 }

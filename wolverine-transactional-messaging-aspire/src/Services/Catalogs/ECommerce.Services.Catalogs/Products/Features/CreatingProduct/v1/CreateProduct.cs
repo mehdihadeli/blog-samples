@@ -1,9 +1,8 @@
-using BuildingBlocks.Integration.Wolverine.Abstractions;
+using BuildingBlocks.Abstractions.Messages;
 using ECommerce.Services.Catalogs.Products.Models;
 using ECommerce.Services.Catalogs.Shared.Data;
 using ECommerce.Services.Shared.Contracts.IntegrationEvents;
 using ECommerce.Services.Shared.Contracts.InternalCommands;
-using ECommerce.Services.Shared.Contracts.MessageEnvelope;
 using MediatR;
 using Wolverine.EntityFrameworkCore;
 
@@ -18,7 +17,8 @@ internal sealed class CreateProductHandler(
     CatalogsDbContext dbContext,
     IDbContextOutbox outbox,
     IExternalEventBus externalEventBus,
-    IMessagePersistenceService messagePersistence
+    IMessagePersistenceService messagePersistence,
+    IBackgroundJobScheduler jobScheduler
 ) : IRequestHandler<CreateProduct, CreateProductResult>
 {
     public async Task<CreateProductResult> Handle(
@@ -36,17 +36,17 @@ internal sealed class CreateProductHandler(
         dbContext.Products.Add(product);
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        var integrationEvent = MessageEnvelope.Create(
+        await externalEventBus.PublishAsync(
             new ProductCreatedV1(
                 product.Id,
                 product.Code,
                 product.Name,
                 product.Price,
                 product.CreatedAtUtc
-            )
+            ),
+            cancellationToken
         );
 
-        await externalEventBus.PublishAsync(integrationEvent, cancellationToken);
         await messagePersistence.EnqueueLocalAsync(
             new ProjectProductReadModel(
                 product.Id,
@@ -55,6 +55,13 @@ internal sealed class CreateProductHandler(
                 product.Price,
                 product.CreatedAtUtc
             ),
+            cancellationToken
+        );
+
+        // Schedule a background job to sync to external CRM, 5 minutes after creation.
+        await jobScheduler.ScheduleAsync(
+            new SyncProductToExternalSystem.SyncProductToExternalSystem(product.Id),
+            TimeSpan.FromMinutes(5),
             cancellationToken
         );
 

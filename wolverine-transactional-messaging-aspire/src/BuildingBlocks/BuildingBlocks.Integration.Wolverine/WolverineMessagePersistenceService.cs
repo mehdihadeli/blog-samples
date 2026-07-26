@@ -1,4 +1,4 @@
-using BuildingBlocks.Integration.Wolverine.Abstractions;
+using BuildingBlocks.Abstractions.Messages;
 using Microsoft.Extensions.DependencyInjection;
 using Wolverine;
 using Wolverine.EntityFrameworkCore;
@@ -11,26 +11,21 @@ internal sealed class WolverineMessagePersistenceService(
     IServiceProvider serviceProvider
 ) : IMessagePersistenceService
 {
-    public ValueTask PublishAsync<TMessage>(
-        TMessage message,
-        CancellationToken cancellationToken = default
-    )
-        where TMessage : class
+    public ValueTask PublishAsync(IMessageEnvelope messageEnvelope, CancellationToken ct = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
+        ct.ThrowIfCancellationRequested();
         TryEnrollCurrentDbContext();
-        return busDirectPublisher.PublishAsync(message, cancellationToken);
+        return busDirectPublisher.PublishAsync(messageEnvelope, ct);
     }
 
-    public ValueTask EnqueueLocalAsync<TMessage>(
-        TMessage message,
-        CancellationToken cancellationToken = default
+    public ValueTask EnqueueLocalAsync(
+        IMessageEnvelope messageEnvelope,
+        CancellationToken ct = default
     )
-        where TMessage : class
     {
-        cancellationToken.ThrowIfCancellationRequested();
+        ct.ThrowIfCancellationRequested();
         TryEnrollCurrentDbContext();
-        return bus.SendAsync(message);
+        return bus.SendAsync(messageEnvelope.Message);
     }
 
     private void TryEnrollCurrentDbContext()

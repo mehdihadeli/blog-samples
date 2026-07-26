@@ -7,4 +7,8 @@ public sealed record OrderSubmittedV1(
     Guid CustomerId,
     decimal TotalAmount,
     DateTime SubmittedAtUtc
-) : IIntegrationEvent;
+) : IIntegrationEvent
+{
+    public Guid MessageId { get; init; } = Guid.NewGuid();
+    public DateTime Created { get; init; } = DateTime.UtcNow;
+}

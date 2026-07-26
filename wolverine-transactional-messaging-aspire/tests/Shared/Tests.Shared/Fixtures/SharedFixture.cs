@@ -1,7 +1,5 @@
 using System.Net.Http.Headers;
 using BuildingBlocks.Abstractions.Messages;
-using BuildingBlocks.Integration.Wolverine.Abstractions;
-using ECommerce.Services.Shared.Contracts.MessageEnvelope;
 using MediatR;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -267,7 +265,7 @@ public abstract class SharedFixture<TEntryPoint>(
         MessageEnvelope<TMessage> messageEnvelope,
         CancellationToken cancellationToken = default
     )
-        where TMessage : BuildingBlocks.Abstractions.Messages.IMessage
+        where TMessage : class, BuildingBlocks.Abstractions.Messages.IMessage
     {
         var trackedSession = await ExecuteScopeAsync(async sp =>
         {

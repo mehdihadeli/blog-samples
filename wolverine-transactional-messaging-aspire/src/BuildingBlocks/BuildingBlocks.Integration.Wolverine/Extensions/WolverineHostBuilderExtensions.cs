@@ -1,4 +1,4 @@
-using BuildingBlocks.Integration.Wolverine.Abstractions;
+using BuildingBlocks.Abstractions.Messages;
 using BuildingBlocks.Integration.Wolverine.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -60,12 +60,14 @@ public static class WolverineHostBuilderExtensions
             }
         });
 
+        builder.Services.AddScoped<IMessageMetadataAccessor, MessageMetadataAccessor>();
         builder.Services.AddScoped<IExternalEventBus, WolverineExternalEventBus>();
         builder.Services.AddScoped<IBusDirectPublisher, WolverineDirectPublisher>();
         builder.Services.AddScoped<
             IMessagePersistenceService,
             WolverineMessagePersistenceService
         >();
+        builder.Services.AddScoped<IBackgroundJobScheduler, WolverineBackgroundJobScheduler>();
 
         return builder;
     }

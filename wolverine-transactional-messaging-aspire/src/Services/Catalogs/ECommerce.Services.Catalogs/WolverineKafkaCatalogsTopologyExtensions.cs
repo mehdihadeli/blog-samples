@@ -1,7 +1,7 @@
+using BuildingBlocks.Abstractions.Messages;
 using BuildingBlocks.Integration.Wolverine.Kafka;
 using Confluent.Kafka.Admin;
 using ECommerce.Services.Shared.Contracts.IntegrationEvents;
-using ECommerce.Services.Shared.Contracts.MessageEnvelope;
 using Humanizer;
 
 namespace ECommerce.Services.Catalogs;

@@ -1,7 +1,7 @@
+using BuildingBlocks.Abstractions.Messages;
 using ECommerce.Services.Orders.Products.Models;
 using ECommerce.Services.Orders.Shared.Data;
 using ECommerce.Services.Shared.Contracts.IntegrationEvents;
-using ECommerce.Services.Shared.Contracts.MessageEnvelope;
 using Microsoft.EntityFrameworkCore;
 
 namespace ECommerce.Services.Orders.Products.Features.ConsumingProductCreated.v1;

@@ -1,7 +1,6 @@
-using BuildingBlocks.Integration.Wolverine.Abstractions;
+using BuildingBlocks.Abstractions.Messages;
 using BuildingBlocks.Integration.Wolverine.RabbitMQ;
 using ECommerce.Services.Shared.Contracts.IntegrationEvents;
-using ECommerce.Services.Shared.Contracts.MessageEnvelope;
 using Humanizer;
 
 namespace ECommerce.Services.Orders;
@@ -40,7 +39,7 @@ public static class WolverineRabbitMqOrdersTopologyExtensions
         builder.UseSnakeCaseConventions(conventions =>
         {
             conventions.IncludeTypes(type =>
-                typeof(IWolverineMessageEnvelope).IsAssignableFrom(type)
+                typeof(IMessageEnvelope).IsAssignableFrom(type)
                 && !(
                     type.IsGenericType
                     && type.GetGenericTypeDefinition() == typeof(MessageEnvelope<>)

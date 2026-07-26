@@ -50,14 +50,18 @@ public static partial class TopologyHelper
     /// <summary>
     /// If <paramref name="type"/> wraps a message type (e.g.
     /// <c>MessageEnvelope&lt;T&gt;</c> or anything implementing
-    /// <c>IWolverineMessageEnvelope</c>), returns the inner message type.
+    /// <c>IMessageEnvelope</c>), returns the inner message type.
     /// Otherwise returns the type unchanged.
     /// </summary>
     public static Type UnwrapEnvelope(Type type)
     {
-        // Check for IWolverineMessageEnvelope with a Message property
+        // Check for IMessageEnvelope with a Message property
         // (handles both MessageEnvelope<T> and any custom envelope).
-        if (typeof(Abstractions.IWolverineMessageEnvelope).IsAssignableFrom(type))
+        if (
+            typeof(global::BuildingBlocks.Abstractions.Messages.IMessageEnvelope).IsAssignableFrom(
+                type
+            )
+        )
         {
             var messageProp = type.GetProperty("Message");
             if (messageProp != null)

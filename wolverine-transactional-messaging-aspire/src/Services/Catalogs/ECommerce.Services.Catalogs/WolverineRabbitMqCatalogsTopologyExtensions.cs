@@ -1,7 +1,6 @@
-using BuildingBlocks.Integration.Wolverine.Abstractions;
+using BuildingBlocks.Abstractions.Messages;
 using BuildingBlocks.Integration.Wolverine.RabbitMQ;
 using ECommerce.Services.Shared.Contracts.IntegrationEvents;
-using ECommerce.Services.Shared.Contracts.MessageEnvelope;
 using Humanizer;
 using Wolverine.RabbitMQ;
 
@@ -38,14 +37,14 @@ public static class WolverineRabbitMqCatalogsTopologyExtensions
         );
 
         // ── Conventional routing: handles OrderSubmittedV1 ──────────
-        // Auto-discovers IWolverineMessageEnvelope types and creates
+        // Auto-discovers IMessageEnvelope types and creates
         // topic exchanges with snake_case naming.
         // Explicitly excludes ProductCreatedV1 to avoid duplicate publisher.
 
         builder.UseSnakeCaseConventions(conventions =>
         {
             conventions.IncludeTypes(type =>
-                typeof(IWolverineMessageEnvelope).IsAssignableFrom(type)
+                typeof(IMessageEnvelope).IsAssignableFrom(type)
                 && !(
                     type.IsGenericType
                     && type.GetGenericTypeDefinition() == typeof(MessageEnvelope<>)

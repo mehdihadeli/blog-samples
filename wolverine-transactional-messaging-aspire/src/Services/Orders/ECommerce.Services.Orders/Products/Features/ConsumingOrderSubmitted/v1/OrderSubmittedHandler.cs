@@ -1,5 +1,5 @@
+using BuildingBlocks.Abstractions.Messages;
 using ECommerce.Services.Shared.Contracts.IntegrationEvents;
-using ECommerce.Services.Shared.Contracts.MessageEnvelope;
 
 namespace ECommerce.Services.Orders.Products.Features.ConsumingOrderSubmitted.v1;
 

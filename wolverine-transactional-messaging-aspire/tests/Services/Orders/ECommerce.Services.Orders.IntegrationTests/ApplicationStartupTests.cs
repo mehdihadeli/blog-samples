@@ -1,3 +1,4 @@
+using BuildingBlocks.Abstractions.Messages;
 using ECommerce.Services.Orders;
 using ECommerce.Services.Orders.Shared.Data;
 using Microsoft.Extensions.Configuration;
@@ -26,6 +27,10 @@ public class ApplicationStartupTests(OrdersSharedFixture sharedFixture)
 
         Assert.NotNull(scope.ServiceProvider.GetRequiredService<OrdersDbContext>());
         Assert.NotNull(scope.ServiceProvider.GetRequiredService<IMessageBus>());
+        Assert.NotNull(scope.ServiceProvider.GetRequiredService<IExternalEventBus>());
+        Assert.NotNull(scope.ServiceProvider.GetRequiredService<IBusDirectPublisher>());
+        Assert.NotNull(scope.ServiceProvider.GetRequiredService<IMessagePersistenceService>());
+        Assert.NotNull(scope.ServiceProvider.GetRequiredService<IBackgroundJobScheduler>());
         Assert.Equal(
             SharedFixture.RabbitMq!.ConnectionString,
             configuration.GetConnectionString("rabbitmq")
@@ -49,6 +54,10 @@ public class ApplicationStartupTests(OrdersSharedFixture sharedFixture)
 
         Assert.NotNull(scope.ServiceProvider.GetRequiredService<OrdersDbContext>());
         Assert.NotNull(scope.ServiceProvider.GetRequiredService<IMessageBus>());
+        Assert.NotNull(scope.ServiceProvider.GetRequiredService<IExternalEventBus>());
+        Assert.NotNull(scope.ServiceProvider.GetRequiredService<IBusDirectPublisher>());
+        Assert.NotNull(scope.ServiceProvider.GetRequiredService<IMessagePersistenceService>());
+        Assert.NotNull(scope.ServiceProvider.GetRequiredService<IBackgroundJobScheduler>());
         Assert.Equal(
             SharedFixture.Kafka!.BootstrapServers,
             configuration.GetConnectionString("kafka")

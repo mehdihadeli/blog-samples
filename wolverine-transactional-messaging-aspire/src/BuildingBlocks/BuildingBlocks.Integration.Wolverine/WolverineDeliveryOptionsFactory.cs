@@ -1,22 +1,21 @@
-using BuildingBlocks.Integration.Wolverine.Abstractions;
+using BuildingBlocks.Abstractions.Messages;
 using Wolverine;
 
 namespace BuildingBlocks.Integration.Wolverine;
 
 internal static class WolverineDeliveryOptionsFactory
 {
-    internal static DeliveryOptions? TryBuild<TMessage>(TMessage message)
-        where TMessage : class
+    internal static DeliveryOptions? TryBuild(IMessageEnvelope envelope)
     {
-        if (message is not IWolverineMessageEnvelope envelope)
+        if (envelope is null)
         {
             return null;
         }
 
-        return new DeliveryOptions { CorrelationId = envelope.CorrelationId.ToString() }
-            .WithHeader("message-id", envelope.MessageId.ToString())
-            .WithHeader("correlation-id", envelope.CorrelationId.ToString())
-            .WithHeader("occurred-at-utc", envelope.OccurredAtUtc.ToString("O"))
-            .WithHeader("message-type", typeof(TMessage).FullName ?? typeof(TMessage).Name);
+        return new DeliveryOptions { CorrelationId = envelope.Metadata.CorrelationId.ToString() }
+            .WithHeader(MessageHeaders.MessageId, envelope.Metadata.MessageId.ToString())
+            .WithHeader(MessageHeaders.CorrelationId, envelope.Metadata.CorrelationId.ToString())
+            .WithHeader(MessageHeaders.Created, envelope.Metadata.Created.ToString("O"))
+            .WithHeader(MessageHeaders.Type, envelope.Metadata.MessageType);
     }
 }

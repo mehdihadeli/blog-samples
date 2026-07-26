@@ -3,9 +3,10 @@ using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-namespace Microsoft.Extensions.Hosting;
+namespace ECommerce.ServiceDefaults;
 
 /// <summary>
 /// Central exception handler that uses IProblemDetailMapper chain to map exceptions
