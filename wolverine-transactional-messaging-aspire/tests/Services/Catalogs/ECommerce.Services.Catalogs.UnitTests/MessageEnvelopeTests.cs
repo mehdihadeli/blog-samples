@@ -1,4 +1,4 @@
-using BuildingBlocks.Abstractions.Messages;
+using BuildingBlocks.Core.Messages;
 using ECommerce.Services.Catalogs.TestShared;
 using Tests.Shared;
 

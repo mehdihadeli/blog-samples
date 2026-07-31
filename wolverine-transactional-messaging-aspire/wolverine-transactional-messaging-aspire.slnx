@@ -5,7 +5,7 @@
     <Project Path="src/Aspire/ECommerce.ServiceDefaults/ECommerce.ServiceDefaults.csproj" />
   </Folder>
   <Folder Name="/src/BuildingBlocks/">
-    <Project Path="src/BuildingBlocks/BuildingBlocks.Abstractions/BuildingBlocks.Abstractions.csproj" />
+    <Project Path="src/BuildingBlocks/BuildingBlocks.Core/BuildingBlocks.Core.csproj" />
     <Project Path="src/BuildingBlocks/BuildingBlocks.Integration.Wolverine/BuildingBlocks.Integration.Wolverine.csproj" />
     <Project Path="src/BuildingBlocks/BuildingBlocks.Integration.Wolverine.Kafka/BuildingBlocks.Integration.Wolverine.Kafka.csproj" />
     <Project Path="src/BuildingBlocks/BuildingBlocks.Integration.Wolverine.RabbitMQ/BuildingBlocks.Integration.Wolverine.RabbitMQ.csproj" />
@@ -35,6 +35,11 @@
     <Project Path="tests/Services/Orders/ECommerce.Services.Orders.IntegrationTests/ECommerce.Services.Orders.IntegrationTests.csproj" />
     <Project Path="tests/Services/Orders/ECommerce.Services.Orders.TestShared/ECommerce.Services.Orders.TestShared.csproj" />
     <Project Path="tests/Services/Orders/ECommerce.Services.Orders.UnitTests/ECommerce.Services.Orders.UnitTests.csproj" />
+  </Folder>
+  <Folder Name="/tests/BuildingBlocks/">
+    <Project Path="tests/BuildingBlocks/ECommerce.BuildingBlocks.TestHost/ECommerce.BuildingBlocks.TestHost.csproj" />
+    <Project Path="tests/BuildingBlocks/ECommerce.BuildingBlocks.RabbitMQ.IntegrationTests/ECommerce.BuildingBlocks.RabbitMQ.IntegrationTests.csproj" />
+    <Project Path="tests/BuildingBlocks/ECommerce.BuildingBlocks.Kafka.IntegrationTests/ECommerce.BuildingBlocks.Kafka.IntegrationTests.csproj" />
   </Folder>
   <Folder Name="/tests/Shared/">
     <Project Path="tests/Shared/Tests.Shared/Tests.Shared.csproj" />

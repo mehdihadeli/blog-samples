@@ -1,4 +1,4 @@
-using BuildingBlocks.Abstractions.Messages;
+using BuildingBlocks.Core.Messages;
 using ECommerce.Services.Shared.Contracts.IntegrationEvents;
 
 namespace ECommerce.Services.Orders.Products.Features.ConsumingProductCreated.v1;

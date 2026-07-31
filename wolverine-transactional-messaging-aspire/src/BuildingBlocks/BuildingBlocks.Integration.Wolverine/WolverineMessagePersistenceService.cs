@@ -1,4 +1,4 @@
-using BuildingBlocks.Abstractions.Messages;
+using BuildingBlocks.Core.Messages;
 using Microsoft.Extensions.DependencyInjection;
 using Wolverine;
 using Wolverine.EntityFrameworkCore;

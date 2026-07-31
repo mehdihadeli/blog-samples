@@ -1,4 +1,4 @@
-using BuildingBlocks.Abstractions.Messages;
+using BuildingBlocks.Core.Messages;
 using Wolverine;
 
 namespace BuildingBlocks.Integration.Wolverine;

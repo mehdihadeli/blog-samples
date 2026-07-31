@@ -1,18 +1,16 @@
-using BuildingBlocks.Abstractions.Messages;
-using BuildingBlocks.Abstractions.Types;
-using Microsoft.Extensions.DependencyInjection;
+using BuildingBlocks.Core.Messages;
+using BuildingBlocks.Core.Types;
 
 namespace BuildingBlocks.Integration.Wolverine;
 
-internal sealed class WolverineExternalEventBus(IServiceProvider serviceProvider)
-    : IExternalEventBus
+internal sealed class WolverineExternalEventBus(
+    IMessageMetadataAccessor metadataAccessor,
+    IMessagePersistenceService persistenceService
+) : IExternalEventBus
 {
     public Task PublishAsync<TMessage>(TMessage message, CancellationToken ct = default)
         where TMessage : class, IMessage
     {
-        ct.ThrowIfCancellationRequested();
-
-        var metadataAccessor = serviceProvider.GetRequiredService<IMessageMetadataAccessor>();
         var correlationId = metadataAccessor.GetCorrelationId();
         var messageTypeName = message.GetType().Name;
 
@@ -27,15 +25,11 @@ internal sealed class WolverineExternalEventBus(IServiceProvider serviceProvider
             }
         );
 
-        var persistenceService = serviceProvider.GetRequiredService<IMessagePersistenceService>();
         return persistenceService.PublishAsync(envelope, ct).AsTask();
     }
 
     public Task PublishAsync(IMessageEnvelope messageEnvelope, CancellationToken ct = default)
     {
-        ct.ThrowIfCancellationRequested();
-
-        var persistenceService = serviceProvider.GetRequiredService<IMessagePersistenceService>();
         return persistenceService.PublishAsync(messageEnvelope, ct).AsTask();
     }
 
@@ -47,9 +41,6 @@ internal sealed class WolverineExternalEventBus(IServiceProvider serviceProvider
     )
         where TMessage : class, IMessage
     {
-        ct.ThrowIfCancellationRequested();
-
-        var metadataAccessor = serviceProvider.GetRequiredService<IMessageMetadataAccessor>();
         var correlationId = metadataAccessor.GetCorrelationId();
         var messageTypeName = message.GetType().Name;
 
@@ -66,7 +57,6 @@ internal sealed class WolverineExternalEventBus(IServiceProvider serviceProvider
             }
         );
 
-        var persistenceService = serviceProvider.GetRequiredService<IMessagePersistenceService>();
         return persistenceService.PublishAsync(envelope, ct).AsTask();
     }
 
@@ -77,9 +67,6 @@ internal sealed class WolverineExternalEventBus(IServiceProvider serviceProvider
         CancellationToken ct = default
     )
     {
-        ct.ThrowIfCancellationRequested();
-
-        var persistenceService = serviceProvider.GetRequiredService<IMessagePersistenceService>();
         return persistenceService.PublishAsync(messageEnvelope, ct).AsTask();
     }
 }

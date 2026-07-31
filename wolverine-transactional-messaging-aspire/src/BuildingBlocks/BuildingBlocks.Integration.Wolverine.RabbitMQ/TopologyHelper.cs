@@ -1,38 +1,23 @@
-using System.Text.RegularExpressions;
+using Humanizer;
 
 namespace BuildingBlocks.Integration.Wolverine.RabbitMQ;
 
 /// <summary>
 /// Naming helpers for Wolverine's conventional routing.
 /// </summary>
-public static partial class TopologyHelper
+public static class TopologyHelper
 {
     // ── Snake-case conversion ─────────────────────────────────────────
 
     /// <summary>
     /// Converts <c>ProductCreatedV1</c> → <c>product_created_v1</c>.
-    /// Lowercase with underscores at Pascal boundaries and number transitions.
+    /// Delegates to Humanizer's <c>Underscore()</c> for correct PascalCase
+    /// and number-boundary handling.
     /// </summary>
     public static string ToSnakeCase(string name)
     {
-        // Insert underscore before uppercase letters followed by lowercase,
-        // and before digits preceded by letters (or vice versa).
-        var s = SnakeCaseBoundaryRegex().Replace(name, "_$1_$2");
-        s = UppercaseBeforeLowercaseRegex().Replace(s, "_$1");
-        s = s.Trim('_').ToLowerInvariant();
-
-        // Collapse consecutive underscores
-        return CollapseUnderscoresRegex().Replace(s, "_");
+        return name.Underscore();
     }
-
-    [GeneratedRegex("([a-z])([A-Z0-9])")]
-    private static partial Regex SnakeCaseBoundaryRegex();
-
-    [GeneratedRegex("([A-Z]+)([A-Z][a-z])")]
-    private static partial Regex UppercaseBeforeLowercaseRegex();
-
-    [GeneratedRegex("_+")]
-    private static partial Regex CollapseUnderscoresRegex();
 
     /// <summary>
     /// Converts a <see cref="Type"/> name to snake_case.
@@ -57,11 +42,7 @@ public static partial class TopologyHelper
     {
         // Check for IMessageEnvelope with a Message property
         // (handles both MessageEnvelope<T> and any custom envelope).
-        if (
-            typeof(global::BuildingBlocks.Abstractions.Messages.IMessageEnvelope).IsAssignableFrom(
-                type
-            )
-        )
+        if (typeof(global::BuildingBlocks.Core.Messages.IMessageEnvelope).IsAssignableFrom(type))
         {
             var messageProp = type.GetProperty("Message");
             if (messageProp != null)

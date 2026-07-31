@@ -1,6 +1,6 @@
 namespace BuildingBlocks.Integration.Wolverine;
 
-using BuildingBlocks.Abstractions.Messages;
+using BuildingBlocks.Core.Messages;
 
 internal sealed class MessageMetadataAccessor : IMessageMetadataAccessor
 {

@@ -1,4 +1,4 @@
-using BuildingBlocks.Abstractions.Messages;
+using BuildingBlocks.Core.Messages;
 using ECommerce.Services.Catalogs.Products.Models;
 using ECommerce.Services.Catalogs.Shared.Data;
 using ECommerce.Services.Shared.Contracts.IntegrationEvents;

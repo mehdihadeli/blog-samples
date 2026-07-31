@@ -1,3 +1,4 @@
+using ECommerce.ServiceDefaults;
 using ECommerce.Services.Catalogs;
 using ECommerce.Services.Catalogs.Shared.Extensions.HostApplicationBuilderExtensions;
 using ECommerce.Services.Catalogs.Shared.Extensions.WebApplicationExtensions;

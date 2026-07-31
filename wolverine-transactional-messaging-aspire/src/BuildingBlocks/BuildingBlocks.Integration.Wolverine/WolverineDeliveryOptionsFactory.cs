@@ -1,11 +1,11 @@
-using BuildingBlocks.Abstractions.Messages;
+using BuildingBlocks.Core.Messages;
 using Wolverine;
 
 namespace BuildingBlocks.Integration.Wolverine;
 
 internal static class WolverineDeliveryOptionsFactory
 {
-    internal static DeliveryOptions? TryBuild(IMessageEnvelope envelope)
+    internal static DeliveryOptions? TryBuild(IMessageEnvelope? envelope)
     {
         if (envelope is null)
         {

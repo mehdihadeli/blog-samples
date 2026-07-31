@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
 using ECommerce.Services.Orders.Products.Models;
+using Microsoft.Extensions.Hosting;
+using Wolverine;
 
 namespace ECommerce.Services.Orders.IntegrationTests.Products.Features.GettingImportedProducts.v1;
 
@@ -12,7 +14,6 @@ public class GetImportedProductsTests(OrdersSharedFixture sharedFixture)
     {
         var productId = Guid.NewGuid();
         var createdAt = new DateTime(2026, 7, 9, 10, 0, 0, DateTimeKind.Utc);
-
         await ExecuteOrdersDbContextAsync(async dbContext =>
         {
             dbContext.ImportedProducts.Add(

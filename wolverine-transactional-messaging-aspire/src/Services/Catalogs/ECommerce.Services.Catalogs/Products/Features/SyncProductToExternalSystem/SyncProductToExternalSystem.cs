@@ -1,4 +1,4 @@
-using BuildingBlocks.Abstractions.Messages;
+using BuildingBlocks.Core.Messages;
 
 namespace ECommerce.Services.Catalogs.Products.Features.SyncProductToExternalSystem;
 

@@ -1,4 +1,3 @@
-using Npgsql;
 using Tests.Shared.Fixtures;
 
 namespace ECommerce.Services.Catalogs.IntegrationTests;
@@ -9,25 +8,6 @@ public sealed class CatalogsSharedFixture()
     public string MongoConnectionString =>
         Mongo?.ConnectionString
         ?? throw new InvalidOperationException("MongoDB fixture is not configured.");
-
-    public async Task<int> CountOutgoingEnvelopeRowsAsync(string destinationLike)
-    {
-        await using var connection = new NpgsqlConnection(Postgres!.ConnectionString);
-        await connection.OpenAsync();
-
-        await using var command = new NpgsqlCommand(
-            """
-            select count(*)
-            from wolverine.wolverine_outgoing_envelopes
-            where destination like @destinationLike
-            """,
-            connection
-        );
-        command.Parameters.AddWithValue("destinationLike", destinationLike);
-
-        var result = await command.ExecuteScalarAsync();
-        return Convert.ToInt32(result);
-    }
 
     protected override void ApplyOverrideEnvKeyValues(IDictionary<string, string> dictionary)
     {

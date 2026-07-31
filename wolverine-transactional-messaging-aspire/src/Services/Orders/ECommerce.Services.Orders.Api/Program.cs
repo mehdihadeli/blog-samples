@@ -1,3 +1,4 @@
+using ECommerce.ServiceDefaults;
 using ECommerce.Services.Orders;
 using ECommerce.Services.Orders.Shared.Extensions.WebApplicationExtensions;
 
@@ -15,4 +16,7 @@ app.MapDefaultEndpoints();
 
 app.Run();
 
-public partial class Program;
+namespace ECommerce.Services.Orders.Api
+{
+    public partial class Program;
+}

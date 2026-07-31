@@ -22,7 +22,7 @@ public static class ApplicationConfiguration
     )
     {
         var group = endpoints.MapGroup(OrdersModulePrefixUri);
-        ((IEndpointRouteBuilder)group).MapProductsModuleEndpoints();
+        group.MapProductsModuleEndpoints();
 
         return endpoints;
     }

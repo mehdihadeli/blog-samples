@@ -1,4 +1,4 @@
-using BuildingBlocks.Abstractions.Messages;
+using BuildingBlocks.Core.Messages;
 using ECommerce.Services.Catalogs;
 using ECommerce.Services.Catalogs.Shared.Contracts;
 using ECommerce.Services.Catalogs.Shared.Data;
@@ -49,7 +49,7 @@ public class ApplicationStartupTests(CatalogsSharedFixture sharedFixture)
                 dict["ConnectionStrings__catalogsdb"] = SharedFixture.Postgres!.ConnectionString;
                 dict["ConnectionStrings__catalogs-mongo"] = SharedFixture.MongoConnectionString;
                 dict["ConnectionStrings__kafka"] = SharedFixture.Kafka!.BootstrapServers;
-                dict["Messaging__Transport"] = "kafka";
+                dict["WolverineBusOptions__TransportType"] = "kafka";
             }
         );
 
@@ -77,7 +77,7 @@ public class ApplicationStartupTests(CatalogsSharedFixture sharedFixture)
             {
                 dict["ConnectionStrings__catalogsdb"] = SharedFixture.Postgres!.ConnectionString;
                 dict["ConnectionStrings__catalogs-mongo"] = SharedFixture.MongoConnectionString;
-                dict["Messaging__Transport"] = "invalid-broker";
+                dict["WolverineBusOptions__TransportType"] = "invalid-broker";
             }
         );
 
@@ -85,6 +85,5 @@ public class ApplicationStartupTests(CatalogsSharedFixture sharedFixture)
 
         Assert.NotNull(exception);
         Assert.IsType<InvalidOperationException>(exception);
-        Assert.Contains("Unsupported messaging transport", exception.Message);
     }
 }

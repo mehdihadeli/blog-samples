@@ -9,7 +9,8 @@ const string KafkaTag = "7.5.12";
 
 var builder = DistributedApplication.CreateBuilder(args);
 var transport =
-    builder.Configuration["Messaging:Transport"]?.Trim().ToLowerInvariant() ?? "rabbitmq";
+    builder.Configuration["WolverineBusOptions:TransportType"]?.Trim().ToLowerInvariant()
+    ?? "rabbitmq";
 
 var postgres = builder.AddPostgres("postgres").WithImage(PostgresImage).WithImageTag(PostgresTag);
 var catalogsDb = postgres.AddDatabase("catalogsdb");
@@ -23,13 +24,13 @@ var catalogsApi = builder
     .AddProject<Projects.ECommerce_Services_Catalogs_Api>("catalogs-api")
     .WithReference(catalogsDb)
     .WithReference(catalogsMongo)
-    .WithEnvironment("Messaging__Transport", transport);
+    .WithEnvironment("WolverineBusOptions__TransportType", transport);
 
 var ordersApi = builder
     .AddProject<Projects.ECommerce_Services_Orders_Api>("orders-api")
     .WithReference(ordersDb)
     .WithReference(ordersMongo)
-    .WithEnvironment("Messaging__Transport", transport);
+    .WithEnvironment("WolverineBusOptions__TransportType", transport);
 
 switch (transport)
 {

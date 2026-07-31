@@ -1,3 +1,4 @@
+using ECommerce.Services.Orders.Api;
 using ECommerce.Services.Orders.Shared.Data;
 using Tests.Shared.TestBase;
 

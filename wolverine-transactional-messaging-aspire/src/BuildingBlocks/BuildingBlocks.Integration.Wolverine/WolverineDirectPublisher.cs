@@ -1,4 +1,4 @@
-using BuildingBlocks.Abstractions.Messages;
+using BuildingBlocks.Core.Messages;
 using Wolverine;
 
 namespace BuildingBlocks.Integration.Wolverine;
@@ -11,7 +11,14 @@ internal sealed class WolverineDirectPublisher(IMessageBus bus) : IBusDirectPubl
 
         var deliveryOptions = WolverineDeliveryOptionsFactory.TryBuild(messageEnvelope);
 
-        return bus.PublishAsync(messageEnvelope.Message, deliveryOptions);
+        // Publish the ENVELOPE, not the raw inner message. RabbitMQ topology
+        // (auto-config or manual) registers routes for MessageEnvelope<T>, so
+        // publishing the raw inner type would fall back to conventional routing
+        // and land on the plain exchange with an EMPTY routing key — silently
+        // dropped on a Topic exchange. TrackActivity also records Sent only for
+        // the type actually published (the wrapper), so tests asserting
+        // MessageEnvelope<T> would see nothing.
+        return bus.PublishAsync(messageEnvelope, deliveryOptions);
     }
 
     public ValueTask PublishAsync(
@@ -23,10 +30,12 @@ internal sealed class WolverineDirectPublisher(IMessageBus bus) : IBusDirectPubl
     {
         ct.ThrowIfCancellationRequested();
 
-        // Routing to specific exchange/topic is handled by Wolverine's
+        // Routing to a specific exchange / topic is handled by Wolverine's
         // type-based topology configuration at startup.
         var deliveryOptions = WolverineDeliveryOptionsFactory.TryBuild(messageEnvelope);
 
-        return bus.PublishAsync(messageEnvelope.Message, deliveryOptions);
+        // Same envelope-first publish as above — the raw inner type has no
+        // registered route (topology only knows MessageEnvelope<T>).
+        return bus.PublishAsync(messageEnvelope, deliveryOptions);
     }
 }

@@ -1,8 +1,10 @@
 using System.Text.Json;
+using BuildingBlocks.Core;
+using BuildingBlocks.Core.Extensions;
 using BuildingBlocks.Integration.Wolverine.Configuration;
 using BuildingBlocks.Integration.Wolverine.Extensions;
-using BuildingBlocks.Integration.Wolverine.Kafka;
-using BuildingBlocks.Integration.Wolverine.RabbitMQ;
+using BuildingBlocks.Integration.Wolverine.Kafka.Extensions;
+using BuildingBlocks.Integration.Wolverine.RabbitMQ.Extensions;
 using ECommerce.Services.Shared.Contracts.Messaging;
 using FluentValidation;
 using MediatR;
@@ -30,76 +32,64 @@ public static class InfrastructureExtensions
         builder.Services.AddValidatorsFromAssembly(typeof(OrdersMetadata).Assembly);
         builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
 
-        var transport = builder.Configuration.GetMessagingTransport();
-        var connectionString =
+        AddMessaging(builder);
+
+        return builder;
+    }
+
+    private static void AddMessaging(WebApplicationBuilder builder)
+    {
+        var durableStorageConnectionString =
             builder.Configuration.GetConnectionString("ordersdb")
             ?? throw new InvalidOperationException("Missing connection string 'ordersdb'.");
         var rabbitMqConnectionString = builder.Configuration.GetConnectionString("rabbitmq");
-        var busOptions =
-            builder.Configuration.GetSection("Wolverine").Get<WolverineBusOptions>()
-            ?? new WolverineBusOptions();
-        var useDurableInboxOnAllListeners =
-            builder
-                .Configuration.GetSection("Wolverine")
-                .GetValue<bool?>(nameof(WolverineBusOptions.UseDurableInboxOnAllListeners)) ?? true;
+        var wolverineOptions = builder.Configuration.BindOptions<WolverineBusOptions>(
+            nameof(WolverineBusOptions)
+        );
 
-        busOptions.DeadLetterQueueName ??= MessagingConstants.DeadLetterQueueName;
-
-        switch (transport)
+        switch (wolverineOptions.TransportType)
         {
             case MessagingTransportType.RabbitMq:
+                // Both options below work identically for RabbitMQ and Kafka:
+                //   OPTION 2 (auto): AutoConfigMessagesTopology=true triggers convention-driven
+                //     auto-scan — no per-service topology file needed.
+                //   OPTION 1 (manual): AutoConfigMessagesTopology=false (default), configure
+                //     callback provides explicit per-service topology.
                 builder.AddWolverineRabbitMq(
-                    new WolverineRabbitMqRegistrationOptions
+                    wolverineBusOptions =>
                     {
-                        Common = new WolverineCommonOptions
-                        {
-                            DurableStorageConnectionString = connectionString,
-                            HandlerAssemblies = [typeof(OrdersMetadata).Assembly],
-                            Bus = new WolverineBusOptions
-                            {
-                                UseDurableLocalQueues = false,
-                                UseDurableInboxOnAllListeners = useDurableInboxOnAllListeners,
-                                UseEntityFrameworkCoreTransactions =
-                                    busOptions.UseEntityFrameworkCoreTransactions,
-                                UseNativeDeadLetterQueue = busOptions.UseNativeDeadLetterQueue,
-                                DeadLetterQueueName = busOptions.DeadLetterQueueName,
-                            },
-                        },
-                        RabbitMq = new WolverineRabbitMqOptions
-                        {
-                            ConnectionName = "rabbitmq",
-                            ConnectionString = rabbitMqConnectionString,
-                        },
+                        wolverineBusOptions.ConnectionName = "rabbitmq";
+                        wolverineBusOptions.ConnectionString = rabbitMqConnectionString;
+                        wolverineBusOptions.UseDurableLocalQueues = false;
+                        wolverineBusOptions.DeadLetterQueueName ??=
+                            MessagingConstants.DeadLetterQueueName;
+                        wolverineBusOptions.DurableStorageConnectionString =
+                            durableStorageConnectionString;
                     },
-                    rabbitMq => rabbitMq.ConfigureOrdersConsumeTopology()
+                    configure: wolverineOptions.AutoConfigMessagesTopology
+                        ? null
+                        : rabbitMq => rabbitMq.ConfigureOrdersConsumeTopology(),
+                    assemblies: [typeof(OrdersMetadata).Assembly]
                 );
                 break;
 
             case MessagingTransportType.Kafka:
                 builder.AddWolverineKafka(
-                    new WolverineKafkaRegistrationOptions
+                    wolverineBusOptions =>
                     {
-                        Common = new WolverineCommonOptions
-                        {
-                            DurableStorageConnectionString = connectionString,
-                            HandlerAssemblies = [typeof(OrdersMetadata).Assembly],
-                            Bus = new WolverineBusOptions
-                            {
-                                UseDurableLocalQueues = false,
-                                UseDurableInboxOnAllListeners = useDurableInboxOnAllListeners,
-                                UseEntityFrameworkCoreTransactions =
-                                    busOptions.UseEntityFrameworkCoreTransactions,
-                                UseNativeDeadLetterQueue = busOptions.UseNativeDeadLetterQueue,
-                                DeadLetterQueueName = busOptions.DeadLetterQueueName,
-                            },
-                        },
-                        Kafka = new WolverineKafkaOptions { ConnectionName = "kafka" },
+                        wolverineBusOptions.ConnectionName = "kafka";
+                        wolverineBusOptions.UseDurableLocalQueues = false;
+                        wolverineBusOptions.DeadLetterQueueName ??=
+                            MessagingConstants.DeadLetterQueueName;
+                        wolverineBusOptions.DurableStorageConnectionString =
+                            durableStorageConnectionString;
                     },
-                    kafka => kafka.ConfigureOrdersConsumeTopology()
+                    configure: wolverineOptions.AutoConfigMessagesTopology
+                        ? null
+                        : kafka => kafka.ConfigureOrdersConsumeTopology(),
+                    assemblies: [typeof(OrdersMetadata).Assembly]
                 );
                 break;
         }
-
-        return builder;
     }
 }

@@ -1,3 +1,5 @@
+using ECommerce.Services.Orders.Api;
+using Microsoft.Extensions.DependencyInjection;
 using Tests.Shared.Fixtures;
 
 namespace ECommerce.Services.Orders.IntegrationTests;
@@ -7,7 +9,8 @@ public class OrdersSharedFixture()
 {
     protected override void ApplyOverrideEnvKeyValues(IDictionary<string, string> dictionary)
     {
-        dictionary["ConnectionStrings__ordersdb"] = Postgres!.ConnectionString;
+        dictionary["ConnectionStrings__ordersdb"] =
+            $"{Postgres!.ConnectionString};SSL Mode=Disable";
         if (RabbitMq is not null)
             dictionary["ConnectionStrings__rabbitmq"] = RabbitMq.ConnectionString;
         if (Kafka is not null)
@@ -16,7 +19,7 @@ public class OrdersSharedFixture()
 
     protected override void ApplyOverrideInMemoryConfig(IDictionary<string, string> dictionary)
     {
-        dictionary["ConnectionStrings:ordersdb"] = Postgres!.ConnectionString;
+        dictionary["ConnectionStrings:ordersdb"] = $"{Postgres!.ConnectionString};SSL Mode=Disable";
         if (RabbitMq is not null)
             dictionary["ConnectionStrings:rabbitmq"] = RabbitMq.ConnectionString;
         if (Kafka is not null)

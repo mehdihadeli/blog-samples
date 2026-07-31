@@ -1,4 +1,4 @@
-using BuildingBlocks.Abstractions.Messages;
+using BuildingBlocks.Core.Messages;
 using BuildingBlocks.Integration.Wolverine.RabbitMQ;
 using ECommerce.Services.Shared.Contracts.IntegrationEvents;
 using Humanizer;
