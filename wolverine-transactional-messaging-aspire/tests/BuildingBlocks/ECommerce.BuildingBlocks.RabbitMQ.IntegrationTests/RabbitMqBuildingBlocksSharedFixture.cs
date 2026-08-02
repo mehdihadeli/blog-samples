@@ -5,13 +5,15 @@ namespace ECommerce.BuildingBlocks.RabbitMQ.IntegrationTests;
 
 /// <summary>
 /// Shared fixture for the RabbitMQ building-block integration tests.
-/// Boots Postgres (Wolverine durable storage) + RabbitMQ, then starts the
-/// isolated <see cref="Program"/> test host configured for RabbitMQ.
+/// Boots RabbitMQ, then starts the isolated <see cref="Program"/> test host
+/// configured for RabbitMQ. No durable storage is used: the building-block
+/// tests exercise publish/consume round-trips, so Wolverine runs with its
+/// in-memory message store (no Postgres polling agents, no Respawn conflict).
 /// The host wires the manual topology via
 /// <c>AddWolverineRabbitMq(..., configure: ConfigureTestRabbitMqTopology)</c>.
 /// </summary>
 public sealed class RabbitMqBuildingBlocksSharedFixture()
-    : SharedFixture<Program>(usePostgres: true, useRabbitMq: true)
+    : SharedFixture<Program>(useRabbitMq: true)
 {
     protected override void ApplyOverrideEnvKeyValues(IDictionary<string, string> dictionary)
     {
@@ -19,8 +21,6 @@ public sealed class RabbitMqBuildingBlocksSharedFixture()
         dictionary["WolverineBusOptions__AutoConfigMessagesTopology"] = "false";
         dictionary["WolverineBusOptions__UseEntityFrameworkCoreTransactions"] = "false";
         dictionary["WolverineBusOptions__UseDurableLocalQueues"] = "false";
-        dictionary["ConnectionStrings__messaging-durable-storage"] =
-            $"{Postgres!.ConnectionString};SSL Mode=Disable";
         dictionary["ConnectionStrings__rabbitmq"] = RabbitMq!.ConnectionString;
     }
 
@@ -30,8 +30,6 @@ public sealed class RabbitMqBuildingBlocksSharedFixture()
         dictionary["WolverineBusOptions:AutoConfigMessagesTopology"] = "false";
         dictionary["WolverineBusOptions:UseEntityFrameworkCoreTransactions"] = "false";
         dictionary["WolverineBusOptions:UseDurableLocalQueues"] = "false";
-        dictionary["ConnectionStrings:messaging-durable-storage"] =
-            $"{Postgres!.ConnectionString};SSL Mode=Disable";
         dictionary["ConnectionStrings:rabbitmq"] = RabbitMq!.ConnectionString;
     }
 }

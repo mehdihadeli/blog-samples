@@ -31,9 +31,12 @@ public static class WolverineRabbitMqTestTopology
     )
     {
         // ── 1. Explicit Topic exchange round-trip ────────────────────
-        // PublishToExchange + DeclareExchange(Topic) + Listen.
-        // The exchange name doubles as the routing key, matching the
-        // listener binding (queue.BindExchange(exchange, exchange)).
+        // PublishToExchange + DeclareExchange(Topic) + Listen + BindQueue.
+        // The exchange name doubles as the routing key: PublishToExchange
+        // sends with routing key "product_created_v1" (see builder) and a
+        // Topic exchange only routes to queues whose binding key matches —
+        // so the queue MUST be bound to the exchange with that same key,
+        // otherwise the message is silently dropped as unroutable.
         builder.PublishToExchange<MessageEnvelope<ProductCreatedV1>>(ProductCreatedExchange);
         builder.DeclareExchange(
             ProductCreatedExchange,
@@ -43,6 +46,7 @@ public static class WolverineRabbitMqTestTopology
             ProductCreatedQueue,
             listener => listener.ListenerCount(1)
         );
+        builder.BindQueue(ProductCreatedQueue, ProductCreatedExchange, ProductCreatedExchange);
 
         // ── 2. Explicit direct-queue round-trip ──────────────────────
         // Publish<T>(queueName) + Listen<T>(queueName).

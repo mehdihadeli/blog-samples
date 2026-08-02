@@ -24,7 +24,7 @@ switch (wolverineOptions.TransportType)
                 wolverineBusOptions.UseDurableLocalQueues = false;
                 wolverineBusOptions.UseEntityFrameworkCoreTransactions = false;
                 wolverineBusOptions.DurableStorageConnectionString =
-                    GetDurableStorageConnectionString(builder);
+                    GetDurableStorageConnectionString(builder) ?? string.Empty;
             },
             // Manual topology: exercises the RabbitMQ building-block builder API.
             configure: rabbitMq => rabbitMq.ConfigureTestRabbitMqTopology(),
@@ -40,7 +40,7 @@ switch (wolverineOptions.TransportType)
                 wolverineBusOptions.UseDurableLocalQueues = false;
                 wolverineBusOptions.UseEntityFrameworkCoreTransactions = false;
                 wolverineBusOptions.DurableStorageConnectionString =
-                    GetDurableStorageConnectionString(builder);
+                    GetDurableStorageConnectionString(builder) ?? string.Empty;
             },
             // Manual topology: exercises the Kafka building-block builder API.
             configure: kafka => kafka.ConfigureTestKafkaTopology(),
@@ -58,14 +58,13 @@ var app = builder.Build();
 
 app.Run();
 
-// Wolverine's durable storage (wolverine schema) always lives in Postgres;
-// no EF DbContext is registered in this host (UseEntityFrameworkCoreTransactions=false).
-static string GetDurableStorageConnectionString(WebApplicationBuilder builder)
+// Wolverine's durable storage (wolverine schema) always lives in Postgres; no EF
+// DbContext is registered in this host (UseEntityFrameworkCoreTransactions=false).
+// The isolated building-block tests run WITHOUT durable storage, so a missing
+// connection string is fine — Wolverine then uses its in-memory message store.
+static string? GetDurableStorageConnectionString(WebApplicationBuilder builder)
 {
-    return builder.Configuration.GetConnectionString("messaging-durable-storage")
-        ?? throw new InvalidOperationException(
-            "Missing connection string 'messaging-durable-storage'."
-        );
+    return builder.Configuration.GetConnectionString("messaging-durable-storage");
 }
 
 namespace ECommerce.BuildingBlocks.TestHost

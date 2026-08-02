@@ -43,7 +43,12 @@ public abstract class IntegrationTestBase<TEntryPoint, TSharedFixture>(TSharedFi
         );
         _testTimeoutCts.CancelAfter(SharedFixture.TestTimeout);
 
-        await SharedFixture.ResetAsync();
+        // Cap per-test reset (container cleanup, topic deletion, queue purging) at
+        // TestTimeout so a stuck broker reset fails fast instead of hanging the run.
+        await SharedFixture
+            .ResetAsync(TestCancellationToken)
+            .WaitAsync(SharedFixture.TestTimeout, TestCancellationToken);
+
         await ResetStateAsync();
     }
 

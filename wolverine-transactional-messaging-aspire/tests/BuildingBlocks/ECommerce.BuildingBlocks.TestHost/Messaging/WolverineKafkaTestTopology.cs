@@ -14,6 +14,14 @@ namespace ECommerce.BuildingBlocks.TestHost.Messaging;
 /// Wired in via <c>AddWolverineKafka(..., configure: ...)</c> when
 /// <c>AutoConfigMessagesTopology = false</c>.
 /// </summary>
+/// <remarks>
+/// IMPORTANT (Wolverine 6.2.0 semantics): <c>ConfigureConsumer()</c> is NOT
+/// combinatorial — it completely replaces the topic's <c>ConsumerConfig</c>
+/// (the building block sets <c>GroupId</c> via its own <c>ConfigureConsumer</c>
+/// call, so any later <c>ConfigureConsumer</c> here must re-assert
+/// <c>GroupId</c> or the consumer fails to start with
+/// <c>'group.id' configuration parameter is required</c>).
+/// </remarks>
 public static class WolverineKafkaTestTopology
 {
     public const string ProductCreatedTopic = "catalogs-products-created";
@@ -43,24 +51,37 @@ public static class WolverineKafkaTestTopology
             OrdersProductsConsumerGroup,
             listener =>
                 listener.ConfigureConsumer(config =>
-                    config.AutoOffsetReset = AutoOffsetReset.Earliest
-                )
+                {
+                    config.GroupId = OrdersProductsConsumerGroup;
+                    config.AutoOffsetReset = AutoOffsetReset.Earliest;
+                })
         );
 
         // ── 2. Auto-naming (snake_case) round-trip ───────────────────
-        // Publish<T>() + Listen<T>() → topic order_created_v1.
+        // Publish<T>() + Listen<T>() → topic order_created_v1 and
+        // consumer group order_created_v1 (same snake_case convention).
         builder.UseSnakeCaseConventions();
         builder.Publish<MessageEnvelope<OrderCreatedV1>>();
         builder.Listen<MessageEnvelope<OrderCreatedV1>>(listener =>
-            listener.ConfigureConsumer(config => config.AutoOffsetReset = AutoOffsetReset.Earliest)
+            listener.ConfigureConsumer(config =>
+            {
+                config.GroupId = nameof(OrderCreatedV1).Underscore();
+                config.AutoOffsetReset = AutoOffsetReset.Earliest;
+            })
         );
 
         // ── 3. Custom naming convention round-trip ───────────────────
-        // WithNamingConvention → topic custom-inventory_adjusted_v1.
+        // WithNamingConvention → topic custom-inventory_adjusted_v1 and
+        // consumer group custom-inventory_adjusted_v1 (the same custom
+        // convention derives both topic and group in the building block).
         builder.WithNamingConvention(type => $"{CustomTopicPrefix}-{type.Name.Underscore()}");
         builder.Publish<MessageEnvelope<InventoryAdjustedV1>>();
         builder.Listen<MessageEnvelope<InventoryAdjustedV1>>(listener =>
-            listener.ConfigureConsumer(config => config.AutoOffsetReset = AutoOffsetReset.Earliest)
+            listener.ConfigureConsumer(config =>
+            {
+                config.GroupId = $"{CustomTopicPrefix}-{nameof(InventoryAdjustedV1).Underscore()}";
+                config.AutoOffsetReset = AutoOffsetReset.Earliest;
+            })
         );
 
         return builder;

@@ -28,10 +28,17 @@ public static class Extensions
 
         builder.Services.AddWolverine(options =>
         {
-            options.PersistMessagesWithPostgresql(
-                connectionString: wolverineBusOptions.DurableStorageConnectionString,
-                schemaName: null
-            );
+            // Persistence is optional: when no durable-storage connection string is
+            // configured (e.g. isolated building-block tests), Wolverine falls back to
+            // its in-memory message store so no Postgres polling agents are started.
+            if (!string.IsNullOrWhiteSpace(wolverineBusOptions.DurableStorageConnectionString))
+            {
+                options.PersistMessagesWithPostgresql(
+                    connectionString: wolverineBusOptions.DurableStorageConnectionString,
+                    schemaName: null
+                );
+            }
+
             if (wolverineBusOptions.UseEntityFrameworkCoreTransactions)
             {
                 options.UseEntityFrameworkCoreTransactions();

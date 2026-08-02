@@ -26,12 +26,17 @@ public abstract class SharedFixture<TEntryPoint>(
 {
     private readonly IMessageSink? _messageSink;
     private CustomWebApplicationFactory<TEntryPoint>? _factory;
-    public IServiceProvider ServiceProvider => field ??= Factory.Services;
 
+    private IServiceProvider? _serviceProvider;
+    private IConfiguration? _configuration;
+    private IHttpContextAccessor? _httpContextAccessor;
+    private HttpClient? _guestClient;
+
+    public IServiceProvider ServiceProvider => _serviceProvider ??= Factory.Services;
     public IConfiguration Configuration =>
-        field ??= ServiceProvider.GetRequiredService<IConfiguration>();
+        _configuration ??= ServiceProvider.GetRequiredService<IConfiguration>();
     public IHttpContextAccessor HttpContextAccessor =>
-        field ??= ServiceProvider.GetRequiredService<IHttpContextAccessor>();
+        _httpContextAccessor ??= ServiceProvider.GetRequiredService<IHttpContextAccessor>();
 
     public PostgresContainerFixture? Postgres { get; } =
         usePostgres ? new PostgresContainerFixture() : null;
@@ -55,17 +60,34 @@ public abstract class SharedFixture<TEntryPoint>(
     {
         get
         {
-            if (field == null)
+            if (_guestClient == null)
             {
-                field = Factory.CreateClient();
+                _guestClient = Factory.CreateClient();
                 // Set the media type of the request to JSON - we need this for getting problem details result for all http calls because problem details just return response for request with media type JSON
-                field.DefaultRequestHeaders.Accept.Add(
+                _guestClient.DefaultRequestHeaders.Accept.Add(
                     new MediaTypeWithQualityHeaderValue("application/json")
                 );
             }
 
-            return field;
+            return _guestClient;
         }
+    }
+
+    /// <summary>
+    /// Disposes the test host and clears every cached service so the next access
+    /// rebuilds the WebApplicationFactory from scratch. Used by building-block
+    /// suites that delete broker topology between tests and must re-run Wolverine's
+    /// AutoProvision per test.
+    /// </summary>
+    public void ResetCachedHost()
+    {
+        _factory?.Dispose();
+        _factory = null;
+        _serviceProvider = null;
+        _configuration = null;
+        _httpContextAccessor = null;
+        _guestClient?.Dispose();
+        _guestClient = null;
     }
 
     private CustomWebApplicationFactory<TEntryPoint> Factory => _factory ??= CreateTestFactory();
@@ -101,22 +123,33 @@ public abstract class SharedFixture<TEntryPoint>(
             await Postgres.DisposeAsync();
     }
 
-    public async Task ResetAsync(CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Cleans per-test broker state (database reset, Kafka topic deletion,
+    /// RabbitMQ queue deletion) WITHOUT touching the cached test host. Host
+    /// lifecycle stays in <see cref="ResetAsync"/>.
+    /// </summary>
+    protected virtual async Task ResetBrokerStateAsync(CancellationToken cancellationToken)
     {
         if (Postgres is not null)
             await Postgres.ResetAsync();
         if (Mongo is not null)
             await Mongo.ResetAsync(cancellationToken);
         if (Kafka is not null)
-        {
-            await Kafka.EnsureStartedAsync();
-            await Kafka.CleanupTopicsAsync(cancellationToken);
-        }
+            await Kafka.ResetAsync(cancellationToken);
         if (RabbitMq is not null)
-        {
-            await RabbitMq.EnsureStartedAsync();
-            await RabbitMq.CleanupQueuesAsync(cancellationToken);
-        }
+            await RabbitMq.ResetAsync(cancellationToken);
+    }
+
+    public virtual async Task ResetAsync(CancellationToken cancellationToken = default)
+    {
+        await ResetBrokerStateAsync(cancellationToken);
+
+        // Force the test host to start (it builds lazily on first ServiceProvider
+        // access) so Wolverine provisions the broker topology — exchanges, queues,
+        // bindings — before any test queries the management API or publishes.
+        // Without this, the first test races ahead of topology provisioning and
+        // sees only the broker's default amq.* exchanges.
+        _ = ServiceProvider;
     }
 
     public async Task CleanupAsync(CancellationToken cancellationToken = default)
@@ -126,7 +159,7 @@ public abstract class SharedFixture<TEntryPoint>(
         if (Mongo is not null)
             await Mongo.ResetAsync(cancellationToken);
         if (RabbitMq is not null)
-            await RabbitMq.CleanupQueuesAsync(cancellationToken);
+            await RabbitMq.ResetAsync(cancellationToken);
     }
 
     private CustomWebApplicationFactory<TEntryPoint> CreateTestFactory()
@@ -167,8 +200,12 @@ public abstract class SharedFixture<TEntryPoint>(
     )
         where T : class
     {
+        // Hard-cap at TestTimeout so a stalled broker round-trip can never hang the
+        // run past 90s: the outer WaitAsync backs up Wolverine's own session timeout
+        // and honors the test-level cancellation token.
         var trackedSession = await BuildSession(includeExternalTransports)
-            .ExecuteAndWaitAsync(action);
+            .ExecuteAndWaitAsync(action)
+            .WaitAsync(TestTimeout, cancellationToken);
 
         // Message arrived at handler
         trackedSession
@@ -218,8 +255,12 @@ public abstract class SharedFixture<TEntryPoint>(
     )
         where T : class
     {
+        // Hard-cap at TestTimeout so a stalled broker round-trip can never hang the
+        // run past 90s: the outer WaitAsync backs up Wolverine's own session timeout
+        // and honors the test-level cancellation token.
         var trackedSession = await BuildSession(includeExternalTransports)
-            .ExecuteAndWaitAsync(action);
+            .ExecuteAndWaitAsync(action)
+            .WaitAsync(TestTimeout, cancellationToken);
 
         // Message arrived at handler
         trackedSession
@@ -273,8 +314,12 @@ public abstract class SharedFixture<TEntryPoint>(
     )
         where T : class
     {
+        // Hard-cap at TestTimeout so a stalled broker round-trip can never hang the
+        // run past 90s: the outer WaitAsync backs up Wolverine's own session timeout
+        // and honors the test-level cancellation token.
         var trackedSession = await BuildSession(includeExternalTransports, ignoreMessageTypes)
-            .ExecuteAndWaitAsync(action);
+            .ExecuteAndWaitAsync(action)
+            .WaitAsync(TestTimeout, cancellationToken);
 
         trackedSession.FindEnvelopesWithMessageType<T>(MessageEventType.Sent).ShouldNotBeEmpty();
         trackedSession
@@ -314,8 +359,12 @@ public abstract class SharedFixture<TEntryPoint>(
     )
         where T : class
     {
+        // Hard-cap at TestTimeout so a stalled broker round-trip can never hang the
+        // run past 90s: the outer WaitAsync backs up Wolverine's own session timeout
+        // and honors the test-level cancellation token.
         var trackedSession = await BuildSession(includeExternalTransports, ignoreMessageTypes)
-            .ExecuteAndWaitAsync(action);
+            .ExecuteAndWaitAsync(action)
+            .WaitAsync(TestTimeout, cancellationToken);
 
         trackedSession.FindEnvelopesWithMessageType<T>(MessageEventType.Sent).ShouldNotBeEmpty();
         trackedSession
@@ -363,11 +412,15 @@ public abstract class SharedFixture<TEntryPoint>(
     )
         where T : class
     {
+        // Hard-cap at TestTimeout so a stalled outbox flush can never hang the run
+        // past 90s: the outer WaitAsync backs up Wolverine's own session timeout
+        // and honors the test-level cancellation token.
         var trackedSession = await BuildSession(
                 includeExternalTransports: false,
                 ignoreMessageTypes: ignoreMessageTypes
             )
-            .ExecuteAndWaitAsync(action);
+            .ExecuteAndWaitAsync(action)
+            .WaitAsync(TestTimeout, cancellationToken);
 
         // Outbox message was flushed and handed to the broker after commit
         trackedSession.FindEnvelopesWithMessageType<T>(MessageEventType.Sent).ShouldNotBeEmpty();
@@ -418,11 +471,15 @@ public abstract class SharedFixture<TEntryPoint>(
     )
         where T : class
     {
+        // Hard-cap at TestTimeout so a stalled internal command can never hang the
+        // run past 90s: the outer WaitAsync backs up Wolverine's own session timeout
+        // and honors the test-level cancellation token.
         var trackedSession = await BuildSession(
                 includeExternalTransports,
                 ignoreMessageTypes: ignoreMessageTypes
             )
-            .ExecuteAndWaitAsync(action);
+            .ExecuteAndWaitAsync(action)
+            .WaitAsync(TestTimeout, cancellationToken);
 
         // Internal command executed successfully
         trackedSession

@@ -5,13 +5,14 @@ namespace ECommerce.BuildingBlocks.Kafka.IntegrationTests;
 
 /// <summary>
 /// Shared fixture for the Kafka building-block integration tests.
-/// Boots Postgres (Wolverine durable storage) + Kafka, then starts the
-/// isolated <see cref="Program"/> test host configured for Kafka.
+/// Boots Kafka, then starts the isolated <see cref="Program"/> test host
+/// configured for Kafka. No durable storage is used: the building-block tests
+/// exercise publish/consume round-trips, so Wolverine runs with its in-memory
+/// message store (no Postgres polling agents, no Respawn conflict).
 /// The host wires the manual topology via
 /// <c>AddWolverineKafka(..., configure: ConfigureTestKafkaTopology)</c>.
 /// </summary>
-public sealed class KafkaBuildingBlocksSharedFixture()
-    : SharedFixture<Program>(usePostgres: true, useKafka: true)
+public sealed class KafkaBuildingBlocksSharedFixture() : SharedFixture<Program>(useKafka: true)
 {
     protected override void ApplyOverrideEnvKeyValues(IDictionary<string, string> dictionary)
     {
@@ -19,8 +20,6 @@ public sealed class KafkaBuildingBlocksSharedFixture()
         dictionary["WolverineBusOptions__AutoConfigMessagesTopology"] = "false";
         dictionary["WolverineBusOptions__UseEntityFrameworkCoreTransactions"] = "false";
         dictionary["WolverineBusOptions__UseDurableLocalQueues"] = "false";
-        dictionary["ConnectionStrings__messaging-durable-storage"] =
-            $"{Postgres!.ConnectionString};SSL Mode=Disable";
         dictionary["ConnectionStrings__kafka"] = Kafka!.BootstrapServers;
     }
 
@@ -30,8 +29,6 @@ public sealed class KafkaBuildingBlocksSharedFixture()
         dictionary["WolverineBusOptions:AutoConfigMessagesTopology"] = "false";
         dictionary["WolverineBusOptions:UseEntityFrameworkCoreTransactions"] = "false";
         dictionary["WolverineBusOptions:UseDurableLocalQueues"] = "false";
-        dictionary["ConnectionStrings:messaging-durable-storage"] =
-            $"{Postgres!.ConnectionString};SSL Mode=Disable";
         dictionary["ConnectionStrings:kafka"] = Kafka!.BootstrapServers;
     }
 }

@@ -9,7 +9,6 @@ namespace Tests.Shared.Fixtures;
 public sealed class KafkaContainerFixture : IAsyncLifetime
 {
     private const string LocalKafkaImage = "confluentinc/cp-kafka:7.5.12";
-    private bool _started;
 
     public KafkaContainer Container { get; } =
         new KafkaBuilder()
@@ -20,24 +19,13 @@ public sealed class KafkaContainerFixture : IAsyncLifetime
 
     public string BootstrapServers => Container.GetBootstrapAddress();
 
-    public async Task EnsureStartedAsync()
+    public async ValueTask InitializeAsync()
     {
-        if (_started)
-        {
-            return;
-        }
-
         await Container.StartAsync();
-        _started = true;
     }
 
-    public async Task CleanupTopicsAsync(CancellationToken cancellationToken = default)
+    public async Task ResetAsync(CancellationToken cancellationToken = default)
     {
-        if (!_started)
-        {
-            return;
-        }
-
         var adminConfig = new AdminClientConfig { BootstrapServers = BootstrapServers };
         using var client = new AdminClientBuilder(adminConfig).Build();
 
@@ -63,13 +51,8 @@ public sealed class KafkaContainerFixture : IAsyncLifetime
         }
     }
 
-    public ValueTask InitializeAsync() => ValueTask.CompletedTask;
-
     public async ValueTask DisposeAsync()
     {
-        if (_started)
-        {
-            await Container.DisposeAsync();
-        }
+        await Container.DisposeAsync();
     }
 }

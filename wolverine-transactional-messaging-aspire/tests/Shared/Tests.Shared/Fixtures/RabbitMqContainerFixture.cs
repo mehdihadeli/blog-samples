@@ -6,35 +6,29 @@ namespace Tests.Shared.Fixtures;
 public sealed class RabbitMqContainerFixture : IAsyncLifetime
 {
     private const string LocalRabbitMqImage = "rabbitmq:4-management";
-    private bool _started;
 
     public RabbitMqContainer Container { get; } =
         new RabbitMqBuilder()
             .WithImage(LocalRabbitMqImage)
             .WithUsername("guest")
             .WithPassword("guest")
+            // Testcontainers' RabbitMqBuilder maps only the AMQP port (5672)
+            // by default. Publish the management HTTP port (15672) too — the
+            // topology tests query the management API (GetExchangesAsync,
+            // GetQueuesAsync, GetBindingsAsync) through it. Random host port
+            // avoids collisions with other containers.
+            .WithPortBinding(15672, true)
             .Build();
 
     public string ConnectionString => Container.GetConnectionString();
 
-    public async Task EnsureStartedAsync()
+    public async ValueTask InitializeAsync()
     {
-        if (_started)
-        {
-            return;
-        }
-
         await Container.StartAsync();
-        _started = true;
     }
 
-    public async Task CleanupQueuesAsync(CancellationToken cancellationToken = default)
+    public async Task ResetAsync(CancellationToken cancellationToken = default)
     {
-        if (!_started)
-        {
-            return;
-        }
-
         int managementPort;
         try
         {
@@ -75,14 +69,9 @@ public sealed class RabbitMqContainerFixture : IAsyncLifetime
         }
     }
 
-    public ValueTask InitializeAsync() => ValueTask.CompletedTask;
-
     public async ValueTask DisposeAsync()
     {
-        if (_started)
-        {
-            await Container.DisposeAsync();
-        }
+        await Container.DisposeAsync();
     }
 
     private sealed class RabbitMqQueueInfo

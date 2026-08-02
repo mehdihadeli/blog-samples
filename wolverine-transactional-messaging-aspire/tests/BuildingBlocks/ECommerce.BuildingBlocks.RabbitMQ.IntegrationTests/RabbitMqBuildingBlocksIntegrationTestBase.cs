@@ -6,4 +6,4 @@ namespace ECommerce.BuildingBlocks.RabbitMQ.IntegrationTests;
 [Collection(RabbitMqBuildingBlocksCollection.Name)]
 public abstract class RabbitMqBuildingBlocksIntegrationTestBase(
     RabbitMqBuildingBlocksSharedFixture sharedFixture
-) : IntegrationTestBase<Program, RabbitMqBuildingBlocksSharedFixture>(sharedFixture);
+) : BuildingBlocksIntegrationTestBase<Program, RabbitMqBuildingBlocksSharedFixture>(sharedFixture);

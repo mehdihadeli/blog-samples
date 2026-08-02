@@ -37,14 +37,4 @@ public static class WolverineOptionsExtensions
 
         return listener;
     }
-
-    public static global::Wolverine.WolverineOptions PublishToKafkaTopic<T>(
-        this global::Wolverine.WolverineOptions options,
-        string topicName
-    )
-    {
-        options.PublishMessage<T>().ToKafkaTopic(topicName);
-
-        return options;
-    }
 }
