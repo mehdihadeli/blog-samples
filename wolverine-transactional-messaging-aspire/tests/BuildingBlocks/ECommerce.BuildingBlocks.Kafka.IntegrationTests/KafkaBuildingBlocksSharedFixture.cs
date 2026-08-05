@@ -31,4 +31,12 @@ public sealed class KafkaBuildingBlocksSharedFixture() : SharedFixture<Program>(
         dictionary["WolverineBusOptions:UseDurableLocalQueues"] = "false";
         dictionary["ConnectionStrings:kafka"] = Kafka!.BootstrapServers;
     }
+
+    /// <summary>
+    /// Keep the Kafka topics alive across the collection. The shared host starts once
+    /// and Wolverine's AutoProvision only creates topics at startup, so deleting them
+    /// between tests would leave listeners subscribed to removed partitions and break
+    /// every subsequent round-trip.
+    /// </summary>
+    protected override bool ResetBrokerStateBetweenTests => false;
 }

@@ -9,8 +9,11 @@ namespace ECommerce.BuildingBlocks.Kafka.IntegrationTests.WolverineKafka;
 /// Round-trip tests for the Kafka building-block publish/listen APIs:
 /// <c>PublishToTopic</c> (explicit topic), <c>UseSnakeCaseConventions</c>
 /// (auto-named topic/group) and <c>WithNamingConvention</c> (custom naming).
-/// Every listener uses earliest offset (AutoOffsetReset.Earliest) so cold-start
-/// consumer groups pick up messages produced after topic re-creation by cleanup.
+/// Topics are created once by AutoProvision at host startup and intentionally
+/// survive the collection (ResetBrokerStateBetweenTests = false), so listeners
+/// stay attached across tests. Every listener uses earliest offset
+/// (AutoOffsetReset.Earliest) so the consumer group picks up messages produced
+/// after the group's first start.
 /// </summary>
 public class WolverineKafkaPublishTests(KafkaBuildingBlocksSharedFixture sharedFixture)
     : KafkaBuildingBlocksIntegrationTestBase(sharedFixture)

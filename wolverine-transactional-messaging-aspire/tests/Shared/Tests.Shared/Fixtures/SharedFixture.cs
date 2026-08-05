@@ -108,16 +108,30 @@ public abstract class SharedFixture<TEntryPoint>(
             await Postgres.DisposeAsync();
     }
 
+    /// <summary>
+    /// Whether broker state (Kafka topics, RabbitMQ queue contents) is wiped between
+    /// tests. Default true so each test starts from a clean broker. Set to false when
+    /// the broker topology must survive across tests in a collection — e.g. Kafka
+    /// building-block tests, where the shared host is long-lived and Wolverine's
+    /// AutoProvision only creates topics at startup, so deleting topics mid-run would
+    /// leave listeners subscribed to removed partitions.
+    /// </summary>
+    protected virtual bool ResetBrokerStateBetweenTests => true;
+
     public virtual async Task ResetAsync(CancellationToken cancellationToken = default)
     {
         if (Postgres is not null)
             await Postgres.ResetAsync();
         if (Mongo is not null)
             await Mongo.ResetAsync(cancellationToken);
-        if (Kafka is not null)
-            await Kafka.ResetAsync(cancellationToken);
-        if (RabbitMq is not null)
-            await RabbitMq.ResetAsync(cancellationToken);
+
+        if (ResetBrokerStateBetweenTests)
+        {
+            if (Kafka is not null)
+                await Kafka.ResetAsync(cancellationToken);
+            if (RabbitMq is not null)
+                await RabbitMq.ResetAsync(cancellationToken);
+        }
 
         // Force the test host to start (it builds lazily on first ServiceProvider
         // access) so Wolverine provisions the broker topology — exchanges, queues,
