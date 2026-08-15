@@ -1,0 +1,28 @@
+{
+  "servers": {
+    "memory": {
+      "type": "http",
+      "url": "http://localhost:8082/memory",
+      "oauth": { "clientId": "mcp-gateway" },
+      "enabled": true
+    },
+    "fetch": {
+      "type": "http",
+      "url": "http://localhost:8082/fetch",
+      "oauth": { "clientId": "mcp-gateway" },
+      "enabled": true
+    },
+    "thinking": {
+      "type": "http",
+      "url": "http://localhost:8082/thinking",
+      "oauth": { "clientId": "mcp-gateway" },
+      "enabled": true
+    },
+    "gateway-all": {
+      "type": "http",
+      "url": "http://localhost:8082/mcp",
+      "oauth": { "clientId": "mcp-gateway" },
+      "enabled": false
+    }
+  }
+}

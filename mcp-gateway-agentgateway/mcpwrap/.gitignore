@@ -1,0 +1,7 @@
+# built binary
+/mcpwrap
+/mcpwrap.exe
+/mcpwrap.exe~
+
+# local test artifacts
+tmp_*.json

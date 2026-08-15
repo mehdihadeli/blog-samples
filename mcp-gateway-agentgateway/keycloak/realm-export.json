@@ -1,0 +1,115 @@
+{
+  "realm": "mcp-demo",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": false,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": false,
+  "defaultSignatureAlgorithm": "RS256",
+  "accessTokenLifespan": 28800,
+  "accessTokenLifespanForImplicitFlow": 900,
+  "ssoSessionIdleTimeout": 28800,
+  "ssoSessionMaxLifespan": 86400,
+  "attributes": {
+    "frontendUrl": "http://keycloak:8080"
+  },
+  "clients": [
+    {
+      "clientId": "mcp-gateway",
+      "name": "MCP Gateway (agentgateway) - public PKCE client",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "consentRequired": false,
+      "redirectUris": [
+        "http://localhost:3000/*",
+        "http://127.0.0.1:33418",
+        "http://127.0.0.1:33418/",
+        "https://vscode.dev/redirect"
+      ],
+      "webOrigins": ["*"],
+      "attributes": {},
+      "protocolMappers": [
+        {
+          "name": "preferred-username",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "username",
+            "claim.name": "preferred_username",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ],
+      "defaultClientScopes": ["read:all"]
+    }
+  ],
+  "clientScopes": [
+    {
+      "name": "read:all",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "mcpuser",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "MCP",
+      "lastName": "User",
+      "email": "mcpuser@example.com",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "mcpuser123",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "alice",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Alice",
+      "lastName": "Dev",
+      "email": "alice@example.com",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "alice123",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "bob",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Bob",
+      "lastName": "Dev",
+      "email": "bob@example.com",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "bob123",
+          "temporary": false
+        }
+      ]
+    }
+  ]
+}

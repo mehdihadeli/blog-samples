@@ -1,0 +1,512 @@
+# yaml-language-server: $schema=https://agentgateway.dev/schema/config
+gateways:
+  default:
+    port: 18080
+    apiKey:
+      mode: strict
+      location:
+        header:
+          name: x-api-key
+      keys:
+        - key: sk-mcp-gateway-demo-key
+          metadata:
+            user: mcpuser
+            role: admin
+        - key: sk-alice-demo-key
+          metadata:
+            user: alice
+            role: dev
+        - key: sk-bob-demo-key
+          metadata:
+            user: bob
+            role: dev
+  sso:
+    port: 8082
+config:
+  tracing:
+    otlpEndpoint: http://localhost:4317
+    otlpProtocol: grpc
+    randomSampling: true
+  logging:
+    format: json
+    level: info
+    database:
+      url: sqlite:///tmp/agentgateway/request-log.db
+  metrics: null
+  standardAttributes:
+    user: "has(jwt.preferred_username) ? jwt.preferred_username : apiKey.user"
+  database:
+    url: sqlite:///tmp/agentgateway/request-log.db
+routes:
+  - name: memory-mcp-apikey
+    gateways:
+      - default
+    matches:
+      - path:
+          pathPrefix: /memory
+    policies:
+      cors:
+        allowOrigins:
+          - "*"
+        allowHeaders:
+          - "*"
+        exposeHeaders:
+          - Mcp-Session-Id
+      localRateLimit:
+        conditional:
+          - condition: apiKey.user == "alice"
+            maxTokens: 60
+            tokensPerFill: 60
+            fillInterval: 1m
+          - condition: apiKey.user == "bob"
+            maxTokens: 30
+            tokensPerFill: 30
+            fillInterval: 1m
+    backends:
+      - mcp:
+          targets:
+            - name: memory
+              stdio:
+                cmd: npx
+                args:
+                  - -y
+                  - "@modelcontextprotocol/server-memory"
+  - name: fetch-mcp-apikey
+    gateways:
+      - default
+    matches:
+      - path:
+          pathPrefix: /fetch
+    policies:
+      cors:
+        allowOrigins:
+          - "*"
+        allowHeaders:
+          - "*"
+        exposeHeaders:
+          - Mcp-Session-Id
+      localRateLimit:
+        conditional:
+          - condition: apiKey.user == "alice"
+            maxTokens: 60
+            tokensPerFill: 60
+            fillInterval: 1m
+          - condition: apiKey.user == "bob"
+            maxTokens: 30
+            tokensPerFill: 30
+            fillInterval: 1m
+    backends:
+      - mcp:
+          targets:
+            - name: fetch
+              stdio:
+                cmd: uvx
+                args:
+                  - --with
+                  - mcp<2
+                  - mcp-server-fetch
+  - name: thinking-mcp-apikey
+    gateways:
+      - default
+    matches:
+      - path:
+          pathPrefix: /thinking
+    policies:
+      cors:
+        allowOrigins:
+          - "*"
+        allowHeaders:
+          - "*"
+        exposeHeaders:
+          - Mcp-Session-Id
+      localRateLimit:
+        conditional:
+          - condition: apiKey.user == "alice"
+            maxTokens: 60
+            tokensPerFill: 60
+            fillInterval: 1m
+          - condition: apiKey.user == "bob"
+            maxTokens: 30
+            tokensPerFill: 30
+            fillInterval: 1m
+    backends:
+      - mcp:
+          targets:
+            - name: thinking
+              stdio:
+                cmd: npx
+                args:
+                  - -y
+                  - "@modelcontextprotocol/server-sequential-thinking"
+  - name: multiplexing-mcp-apikey
+    gateways:
+      - default
+    matches:
+      - path:
+          pathPrefix: /mcp
+    policies:
+      cors:
+        allowOrigins:
+          - "*"
+        allowHeaders:
+          - "*"
+        exposeHeaders:
+          - Mcp-Session-Id
+      localRateLimit:
+        conditional:
+          - condition: apiKey.user == "alice"
+            maxTokens: 60
+            tokensPerFill: 60
+            fillInterval: 1m
+          - condition: apiKey.user == "bob"
+            maxTokens: 30
+            tokensPerFill: 30
+            fillInterval: 1m
+    backends:
+      - mcp:
+          targets:
+            - name: memory
+              stdio:
+                cmd: npx
+                args:
+                  - -y
+                  - "@modelcontextprotocol/server-memory"
+            - name: fetch
+              stdio:
+                cmd: uvx
+                args:
+                  - --with
+                  - mcp<2
+                  - mcp-server-fetch
+            - name: thinking
+              stdio:
+                cmd: npx
+                args:
+                  - -y
+                  - "@modelcontextprotocol/server-sequential-thinking"
+            - name: everything
+              stdio:
+                cmd: npx
+                args:
+                  - -y
+                  - "@modelcontextprotocol/server-everything"
+  - name: memory-mcp-sso
+    gateways:
+      - sso
+    matches:
+      - path:
+          pathPrefix: /memory
+      - path:
+          exact: /.well-known/oauth-protected-resource/memory
+      - path:
+          exact: /.well-known/oauth-authorization-server/memory
+      - path:
+          exact: /.well-known/oauth-authorization-server/memory/client-registration
+    policies:
+      cors:
+        allowOrigins:
+          - "*"
+        allowHeaders:
+          - "*"
+        exposeHeaders:
+          - Mcp-Session-Id
+      mcpAuthentication:
+        mode: strict
+        issuer: http://keycloak:8080/realms/mcp-demo
+        audiences:
+          - mcp-gateway
+        clientId: mcp-gateway
+        jwks:
+          url: http://keycloak:8080/realms/mcp-demo/protocol/openid-connect/certs
+        provider:
+          keycloak: {}
+        resourceMetadata:
+          resource: http://localhost:8082/memory
+          scopesSupported:
+            - read:all
+          bearerMethodsSupported:
+            - header
+      mcpAuthorization:
+        rules:
+          - jwt.preferred_username == "alice"
+          - jwt.preferred_username == "bob"
+      localRateLimit:
+        conditional:
+          - condition: jwt.preferred_username == "alice"
+            maxTokens: 60
+            tokensPerFill: 60
+            fillInterval: 1m
+          - condition: jwt.preferred_username == "bob"
+            maxTokens: 30
+            tokensPerFill: 30
+            fillInterval: 1m
+    backends:
+      - mcp:
+          targets:
+            - name: memory
+              stdio:
+                cmd: npx
+                args:
+                  - -y
+                  - "@modelcontextprotocol/server-memory"
+  - name: fetch-mcp-sso
+    gateways:
+      - sso
+    matches:
+      - path:
+          pathPrefix: /fetch
+      - path:
+          exact: /.well-known/oauth-protected-resource/fetch
+      - path:
+          exact: /.well-known/oauth-authorization-server/fetch
+      - path:
+          exact: /.well-known/oauth-authorization-server/fetch/client-registration
+    policies:
+      cors:
+        allowOrigins:
+          - "*"
+        allowHeaders:
+          - "*"
+        exposeHeaders:
+          - Mcp-Session-Id
+      mcpAuthentication:
+        mode: strict
+        issuer: http://keycloak:8080/realms/mcp-demo
+        audiences:
+          - mcp-gateway
+        clientId: mcp-gateway
+        jwks:
+          url: http://keycloak:8080/realms/mcp-demo/protocol/openid-connect/certs
+        provider:
+          keycloak: {}
+        resourceMetadata:
+          resource: http://localhost:8082/fetch
+          scopesSupported:
+            - read:all
+          bearerMethodsSupported:
+            - header
+      mcpAuthorization:
+        rules:
+          - jwt.preferred_username == "alice"
+      localRateLimit:
+        conditional:
+          - condition: jwt.preferred_username == "alice"
+            maxTokens: 60
+            tokensPerFill: 60
+            fillInterval: 1m
+          - condition: jwt.preferred_username == "bob"
+            maxTokens: 30
+            tokensPerFill: 30
+            fillInterval: 1m
+    backends:
+      - mcp:
+          targets:
+            - name: fetch
+              stdio:
+                cmd: uvx
+                args:
+                  - --with
+                  - mcp<2
+                  - mcp-server-fetch
+  - name: thinking-mcp-sso
+    gateways:
+      - sso
+    matches:
+      - path:
+          pathPrefix: /thinking
+      - path:
+          exact: /.well-known/oauth-protected-resource/thinking
+      - path:
+          exact: /.well-known/oauth-authorization-server/thinking
+      - path:
+          exact: /.well-known/oauth-authorization-server/thinking/client-registration
+    policies:
+      cors:
+        allowOrigins:
+          - "*"
+        allowHeaders:
+          - "*"
+        exposeHeaders:
+          - Mcp-Session-Id
+      mcpAuthentication:
+        mode: strict
+        issuer: http://keycloak:8080/realms/mcp-demo
+        audiences:
+          - mcp-gateway
+        clientId: mcp-gateway
+        jwks:
+          url: http://keycloak:8080/realms/mcp-demo/protocol/openid-connect/certs
+        provider:
+          keycloak: {}
+        resourceMetadata:
+          resource: http://localhost:8082/thinking
+          scopesSupported:
+            - read:all
+          bearerMethodsSupported:
+            - header
+      mcpAuthorization:
+        rules:
+          - jwt.preferred_username == "alice"
+          - jwt.preferred_username == "bob"
+      localRateLimit:
+        conditional:
+          - condition: jwt.preferred_username == "alice"
+            maxTokens: 60
+            tokensPerFill: 60
+            fillInterval: 1m
+          - condition: jwt.preferred_username == "bob"
+            maxTokens: 30
+            tokensPerFill: 30
+            fillInterval: 1m
+    backends:
+      - mcp:
+          targets:
+            - name: thinking
+              stdio:
+                cmd: npx
+                args:
+                  - -y
+                  - "@modelcontextprotocol/server-sequential-thinking"
+  - name: multiplexing-mcp-sso
+    gateways:
+      - sso
+    matches:
+      - path:
+          pathPrefix: /mcp
+    policies:
+      cors:
+        allowOrigins:
+          - "*"
+        allowHeaders:
+          - "*"
+        exposeHeaders:
+          - Mcp-Session-Id
+      mcpAuthentication:
+        mode: strict
+        issuer: http://keycloak:8080/realms/mcp-demo
+        audiences:
+          - mcp-gateway
+        clientId: mcp-gateway
+        jwks:
+          url: http://keycloak:8080/realms/mcp-demo/protocol/openid-connect/certs
+        provider:
+          keycloak: {}
+        resourceMetadata:
+          resource: http://localhost:8082/mcp
+          scopesSupported:
+            - read:all
+          bearerMethodsSupported:
+            - header
+      mcpAuthorization:
+        rules:
+          - jwt.preferred_username == "alice"
+          - jwt.preferred_username == "bob" && mcp.tool.target != "fetch"
+      localRateLimit:
+        conditional:
+          - condition: jwt.preferred_username == "alice"
+            maxTokens: 60
+            tokensPerFill: 60
+            fillInterval: 1m
+          - condition: jwt.preferred_username == "bob"
+            maxTokens: 30
+            tokensPerFill: 30
+            fillInterval: 1m
+    backends:
+      - mcp:
+          targets:
+            - name: memory
+              stdio:
+                cmd: npx
+                args:
+                  - -y
+                  - "@modelcontextprotocol/server-memory"
+            - name: fetch
+              stdio:
+                cmd: uvx
+                args:
+                  - --with
+                  - mcp<2
+                  - mcp-server-fetch
+            - name: thinking
+              stdio:
+                cmd: npx
+                args:
+                  - -y
+                  - "@modelcontextprotocol/server-sequential-thinking"
+            - name: everything
+              stdio:
+                cmd: npx
+                args:
+                  - -y
+                  - "@modelcontextprotocol/server-everything"
+mcp:
+  gateways:
+    - sso
+  targets:
+    - name: memory
+      stdio:
+        cmd: npx
+        args:
+          - -y
+          - "@modelcontextprotocol/server-memory"
+    - name: fetch
+      stdio:
+        cmd: uvx
+        args:
+          - --with
+          - mcp<2
+          - mcp-server-fetch
+    - name: thinking
+      stdio:
+        cmd: npx
+        args:
+          - -y
+          - "@modelcontextprotocol/server-sequential-thinking"
+    - name: everything
+      stdio:
+        cmd: npx
+        args:
+          - -y
+          - "@modelcontextprotocol/server-everything"
+  policies:
+    cors:
+      allowOrigins:
+        - "*"
+        - http://localhost:15000
+      allowHeaders:
+        - "*"
+      allowMethods:
+        - GET
+        - POST
+      exposeHeaders:
+        - Mcp-Session-Id
+    mcpAuthentication:
+      mode: strict
+      issuer: http://keycloak:8080/realms/mcp-demo
+      audiences:
+        - mcp-gateway
+      clientId: mcp-gateway
+      jwks:
+        url: http://keycloak:8080/realms/mcp-demo/protocol/openid-connect/certs
+      provider:
+        keycloak: {}
+      resourceMetadata:
+        resource: http://localhost:8082/mcp
+        scopesSupported:
+          - read:all
+        bearerMethodsSupported:
+          - header
+    mcpAuthorization:
+      rules:
+        - jwt.preferred_username == "alice"
+        - jwt.preferred_username == "bob" && mcp.tool.target != "fetch"
+    localRateLimit:
+      conditional:
+        - condition: jwt.preferred_username == "alice"
+          maxTokens: 60
+          tokensPerFill: 60
+          fillInterval: 1m
+        - condition: jwt.preferred_username == "bob"
+          maxTokens: 30
+          tokensPerFill: 30
+          fillInterval: 1m

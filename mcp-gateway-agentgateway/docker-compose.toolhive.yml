@@ -1,0 +1,392 @@
+# =============================================================================
+# docker-compose.toolhive.yml — single, self-contained stack for the
+# agentgateway MCP gateway sample (ToolHive runtime model).
+#
+# One compose file, two roles:
+#   gateway        : agentgateway (STOCK official image, no custom build) —
+#                    routes to the MCP servers over HTTP. The servers run on
+#                    the HOST, proxied by ToolHive (`thv`):
+#                      thv run docker.io/mcp/memory --host 0.0.0.0 --proxy-port 19001 \
+#                           --transport stdio --proxy-mode streamable-http \
+#                           --isolate-network=false
+#                    ... (see scripts/start-toolhive.sh for the full set —
+#                    memory :19001, fetch :19002, sequentialthinking :19003,
+#                    everything :19004)
+#                    The gateway is hardened: read-only rootfs, cap_drop ALL,
+#                    no-new-privileges, non-root (image default uid 65532) and
+#                    NO docker.sock / docker CLI anywhere in this file.
+#                    Gateway stdout streams to Loki via the Docker loki log
+#                    driver (no busybox tee / custom image needed).
+#   keycloak       : OIDC IdP (realm mcp-demo, client mcp-gateway, :8081)
+#   observability  : otel-collector (OTLP) + prometheus + tempo + loki +
+#                    grafana + langfuse (web/worker/postgres/redis/clickhouse/
+#                    minio) + phoenix
+#
+# Start the MCP servers first (scripts/start-toolhive.sh), then:
+#   docker compose -f docker-compose.toolhive.yml up -d
+# =============================================================================
+name: docker-compose-toolhive
+services:
+  gateway:
+    # STOCK official image — the sample no longer builds a custom gateway.
+    # It needs NO docker CLI and NO docker.sock: MCP servers are host-side
+    # ToolHive proxies (http://host.docker.internal:19001-19004/mcp).
+    image: cr.agentgateway.dev/agentgateway:v1.4.1
+    container_name: mcp-agentgateway-gateway-toolhive
+    restart: unless-stopped
+    # The gateway fetches Keycloak's JWKS at startup and exits if the fetch
+    # fails — wait for keycloak's healthcheck (management :9000, see below)
+    # so it never crash-loops while keycloak is still booting.
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    command: ["-f", "/config.yaml"]
+    # Hardening (same as the retired gateway.hardened.Dockerfile): read-only
+    # rootfs, no capabilities, no privilege escalation. The image default user
+    # is non-root uid 65532. There is no docker.sock mount — the gateway holds
+    # zero container-management privileges.
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    extra_hosts:
+      # Lets the gateway reach the host-side ToolHive proxies
+      # (http://host.docker.internal:19001/19002/19003/19004/mcp, see config).
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./config.toolhive.yaml:/config.yaml:ro
+      # Writable dir for the SQLite request-log DB
+      # (config: logging.database sqlite:///var/log/agentgateway/request-log.db).
+      - gateway-logs:/var/log/agentgateway
+    ports:
+      # Host 8080 is reserved for Keycloak (the OAuth browser flow must reach
+      # http://keycloak:8080/... from the host), so the gateway's apiKey port
+      # lives on 18080.
+      - "18080:8080" # MCP gateway (four routes, apiKey)
+      - "8082:8082" # MCP gateway SSO entry (same routes, Keycloak JWT)
+      - "15000:15000" # agentgateway Admin UI
+      - "15020:15020" # agentgateway Prometheus metrics
+      - "15021:15021" # agentgateway readiness probe
+    environment:
+      - ADMIN_ADDR=0.0.0.0:15000
+    # Gateway stdout -> Loki via the Docker loki log driver (installed by
+    # scripts/start-toolhive.sh: docker plugin install grafana/loki-docker-driver).
+    # The driver runs on the Docker daemon (host), so localhost:3100 reaches
+    # the published Loki port. No busybox tee, no custom image, no collector
+    # filelog leg — the driver pushes straight to Loki's /api/v1/push.
+    logging:
+      driver: loki
+      options:
+        loki-url: http://localhost:3100/loki/api/v1/push
+        loki-external-labels: "job=agentgateway,container_name={{.Name}}"
+        loki-retries: "5"
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: mcp-agentgateway-keycloak
+    restart: unless-stopped
+    command: ["start-dev", "--import-realm"]
+    environment:
+      - KC_BOOTSTRAP_ADMIN_USERNAME=admin
+      - KC_BOOTSTRAP_ADMIN_PASSWORD=admin
+      - KC_HEALTH_ENABLED=true
+    ports:
+      # Host 8080 = Keycloak so the browser flow (VS Code Copilot OAuth
+      # popup, and the `127.0.0.1 keycloak` hosts entry) reaches Keycloak.
+      - "8080:8080" # Keycloak UI/issuer (browser flow: http://keycloak:8080)
+      - "8081:8080" # Keycloak console / tests (alternate host port)
+    volumes:
+      # Realm import (first boot): realm mcp-demo, client mcp-gateway,
+      # user mcpuser/mcpuser123. frontendUrl attr pins the JWT issuer to
+      # http://keycloak:8080/realms/mcp-demo (in-network name, same for
+      # browser via the hosts entry).
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+      # Persistent H2 data dir: keeps the realm + signing keys across
+      # `docker compose down`/`up` (keycloak recreates). Without it every
+      # recreate mints NEW signing keys, so the gateway's cached JWKS stops
+      # matching and the SSO port 401s with "token uses the unknown key".
+      # NOTE: the official image runs as uid 1000 — scripts/start-*.sh
+      # chowns this volume so keycloak can write.
+      - keycloak-data:/opt/keycloak/data
+    healthcheck:
+      test: [
+          "CMD-SHELL",
+          # Keycloak 26 serves /health/ready on the management interface
+          # (port 9000), not on the main HTTP port 8080.
+          "exec 3<>/dev/tcp/localhost/9000 && echo -e 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 && cat <&3 | grep -q '200 OK'",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.146.0
+    container_name: mcp-agentgateway-otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "4317:4317" # OTLP gRPC (gateway container -> otel-collector:4317)
+      - "4318:4318" # OTLP HTTP
+    depends_on:
+      - tempo
+      - loki
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: mcp-agentgateway-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+  tempo:
+    image: grafana/tempo:2.7.1
+    container_name: mcp-agentgateway-tempo
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./tempo.yaml:/etc/tempo.yaml:ro
+    ports:
+      - "3200:3200" # Tempo query API (Grafana datasource)
+
+  loki:
+    image: grafana/loki:3.3.2
+    container_name: mcp-agentgateway-loki
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/config.yaml"]
+    volumes:
+      - ./loki-config.yaml:/etc/loki/config.yaml:ro
+    ports:
+      - "3100:3100" # Loki API + OTLP ingest (/otlp) + docker driver push
+
+  grafana:
+    image: grafana/grafana-oss:11.4.0
+    container_name: mcp-agentgateway-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+
+  # ---------------------------------------------------------------------------
+  # LLM observability: Langfuse (self-hosted v3) + Arize Phoenix
+  #
+  # The gateway exports OTLP/gRPC to otel-collector:4317 only; the collector
+  # fans traces out to Tempo, Langfuse (OTLP/HTTP) and Phoenix (OTLP/gRPC) —
+  # see otel-collector.yaml.
+  #
+  # Langfuse v3 is the smallest OTLP-capable version (OTLP since v3.22) but
+  # it still requires the full data stack: web + worker + postgres + redis +
+  # clickhouse + minio (v3 made ClickHouse and the S3 event-upload bucket
+  # mandatory — an empty S3 bucket fails its zod env validation, so MinIO
+  # cannot be dropped). Headless init (LANGFUSE_INIT_*) auto-creates the
+  # admin user + demo project with the keys the collector Basic-auths with:
+  #   public key: pk-lf-demo-public-key   secret key: sk-lf-demo-secret-key
+  # ---------------------------------------------------------------------------
+  langfuse-web:
+    image: langfuse/langfuse:3
+    container_name: mcp-agentgateway-langfuse-web
+    restart: unless-stopped
+    depends_on:
+      postgres-langfuse:
+        condition: service_healthy
+      redis-langfuse:
+        condition: service_healthy
+      clickhouse-langfuse:
+        condition: service_healthy
+      minio-langfuse:
+        condition: service_healthy
+    ports:
+      - "3001:3000" # Langfuse UI (grafana owns :3000) + OTLP HTTP ingest
+    environment:
+      - NEXTAUTH_URL=http://localhost:3001
+      - NEXTAUTH_SECRET=change-me-nextauth-secret-12345
+      - SALT=change-me-salt
+      - ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000
+      - DATABASE_URL=postgresql://postgres:postgres@postgres-langfuse:5432/postgres
+      - REDIS_HOST=redis-langfuse
+      - REDIS_PORT=6379
+      - CLICKHOUSE_URL=http://clickhouse-langfuse:8123
+      - CLICKHOUSE_MIGRATION_URL=clickhouse://clickhouse-langfuse:9000
+      - CLICKHOUSE_USER=clickhouse
+      - CLICKHOUSE_PASSWORD=clickhouse
+      - LANGFUSE_S3_EVENT_UPLOAD_BUCKET=langfuse
+      - LANGFUSE_S3_EVENT_UPLOAD_REGION=auto
+      - LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID=minio
+      - LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY=miniosecret
+      - LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT=http://minio-langfuse:9000
+      - LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE=true
+      - LANGFUSE_S3_EVENT_UPLOAD_PREFIX=events/
+      - LANGFUSE_S3_MEDIA_UPLOAD_BUCKET=langfuse
+      - LANGFUSE_S3_MEDIA_UPLOAD_REGION=auto
+      - LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID=minio
+      - LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY=miniosecret
+      - LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT=http://minio-langfuse:9000
+      - LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE=true
+      - LANGFUSE_S3_MEDIA_UPLOAD_PREFIX=media/
+      # Headless init — creates admin user + demo project with known keys
+      # (v3 also requires LANGFUSE_INIT_ORG_ID / LANGFUSE_INIT_PROJECT_ID)
+      - LANGFUSE_INIT_ORG_ID=org-demo
+      - LANGFUSE_INIT_ORG_NAME=Demo Org
+      - LANGFUSE_INIT_PROJECT_ID=proj-demo
+      - LANGFUSE_INIT_PROJECT_NAME=agentgateway-demo
+      - LANGFUSE_INIT_PROJECT_PUBLIC_KEY=pk-lf-demo-public-key
+      - LANGFUSE_INIT_PROJECT_SECRET_KEY=sk-lf-demo-secret-key
+      - LANGFUSE_INIT_USER_EMAIL=admin@langfuse.local
+      - LANGFUSE_INIT_USER_NAME=admin
+      - LANGFUSE_INIT_USER_PASSWORD=admin123
+
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3
+    container_name: mcp-agentgateway-langfuse-worker
+    restart: unless-stopped
+    depends_on:
+      postgres-langfuse:
+        condition: service_healthy
+      redis-langfuse:
+        condition: service_healthy
+      clickhouse-langfuse:
+        condition: service_healthy
+      minio-langfuse:
+        condition: service_healthy
+    environment:
+      - NEXTAUTH_URL=http://localhost:3001
+      - SALT=change-me-salt
+      - ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000
+      - DATABASE_URL=postgresql://postgres:postgres@postgres-langfuse:5432/postgres
+      - REDIS_HOST=redis-langfuse
+      - REDIS_PORT=6379
+      - CLICKHOUSE_URL=http://clickhouse-langfuse:8123
+      - CLICKHOUSE_MIGRATION_URL=clickhouse://clickhouse-langfuse:9000
+      - CLICKHOUSE_USER=clickhouse
+      - CLICKHOUSE_PASSWORD=clickhouse
+      - CLICKHOUSE_CLUSTER_ENABLED=false
+      - LANGFUSE_S3_EVENT_UPLOAD_BUCKET=langfuse
+      - LANGFUSE_S3_EVENT_UPLOAD_REGION=auto
+      - LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID=minio
+      - LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY=miniosecret
+      - LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT=http://minio-langfuse:9000
+      - LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE=true
+      - LANGFUSE_S3_EVENT_UPLOAD_PREFIX=events/
+      - LANGFUSE_S3_MEDIA_UPLOAD_BUCKET=langfuse
+      - LANGFUSE_S3_MEDIA_UPLOAD_REGION=auto
+      - LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID=minio
+      - LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY=miniosecret
+      - LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT=http://minio-langfuse:9000
+      - LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE=true
+      - LANGFUSE_S3_MEDIA_UPLOAD_PREFIX=media/
+
+  postgres-langfuse:
+    image: postgres:15
+    container_name: mcp-agentgateway-langfuse-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=postgres
+    volumes:
+      - langfuse_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  redis-langfuse:
+    image: redis:7
+    container_name: mcp-agentgateway-langfuse-redis
+    restart: unless-stopped
+    volumes:
+      - langfuse_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 10s
+      retries: 10
+
+  clickhouse-langfuse:
+    image: clickhouse/clickhouse-server:25.12
+    container_name: mcp-agentgateway-langfuse-clickhouse
+    restart: unless-stopped
+    user: "101:101"
+    environment:
+      - CLICKHOUSE_DB=default
+      - CLICKHOUSE_USER=clickhouse
+      - CLICKHOUSE_PASSWORD=clickhouse
+    volumes:
+      - langfuse_clickhouse_data:/var/lib/clickhouse
+      - langfuse_clickhouse_logs:/var/log/clickhouse-server
+      # Embedded keeper: Langfuse migrations create ReplicatedMergeTree
+      # tables ON CLUSTER default — a single-node ClickHouse needs a keeper.
+      - ./clickhouse-keeper.xml:/etc/clickhouse-server/config.d/keeper.xml:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:8123/ping",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 1s
+
+  minio-langfuse:
+    image: cgr.dev/chainguard/minio
+    container_name: mcp-agentgateway-langfuse-minio
+    restart: unless-stopped
+    entrypoint: sh
+    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
+    environment:
+      - MINIO_ROOT_USER=minio
+      - MINIO_ROOT_PASSWORD=miniosecret
+    ports:
+      - "127.0.0.1:9092:9000" # S3 API (loopback only; prometheus owns :9090)
+      - "127.0.0.1:9093:9001" # MinIO console
+    volumes:
+      - langfuse_minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 1s
+      timeout: 5s
+      retries: 5
+      start_period: 1s
+
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    container_name: mcp-agentgateway-phoenix
+    restart: unless-stopped
+    environment:
+      # Example-only: disable Phoenix auth so traces are visible immediately
+      # at http://localhost:6006 without creating a user.
+      - PHOENIX_ENABLE_AUTH=false
+    ports:
+      - "6006:6006" # Phoenix UI (HTTP) + OTLP HTTP ingest
+      # OTLP gRPC ingest stays in-network: the collector exports to
+      # phoenix:4317 and the host :4317 is already the collector's.
+
+# gateway-logs: writable dir for the gateway's SQLite request-log DB
+# (config.toolhive.yaml logging.database) under a read-only rootfs.
+# Langfuse volumes: Postgres, Redis, ClickHouse data + logs, MinIO buckets.
+volumes:
+  gateway-logs:
+  keycloak-data:
+  langfuse_postgres_data:
+  langfuse_redis_data:
+  langfuse_clickhouse_data:
+  langfuse_clickhouse_logs:
+  langfuse_minio_data:

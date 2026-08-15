@@ -1,0 +1,499 @@
+# yaml-language-server: $schema=https://agentgateway.dev/schema/config
+# =============================================================================
+# agentgateway standalone config — TOOLHIVE RUNTIME VARIANT
+# -----------------------------------------------------------------------------
+# The MCP servers do NOT run inside this compose stack at all. They are run
+# on the HOST by the ToolHive Runtime CLI (`thv run`), which pulls each
+# official docker.io image and bridges its stdio to a Streamable HTTP proxy:
+#
+#   thv run docker.io/mcp/memory             --host 0.0.0.0 --proxy-port 19001 --transport stdio --proxy-mode streamable-http --isolate-network=false
+#   thv run docker.io/mcp/fetch              --host 0.0.0.0 --proxy-port 19002 --transport stdio --proxy-mode streamable-http
+#   thv run docker.io/mcp/sequentialthinking --host 0.0.0.0 --proxy-port 19003 --transport stdio --proxy-mode streamable-http --isolate-network=false
+#   thv run npx://@modelcontextprotocol/server-everything \
+#     --name mcp-everything --host 0.0.0.0 --proxy-port 19004 --transport stdio \
+#     --proxy-mode streamable-http --isolate-network=false
+#     (npx:// scheme: everything ships as an npm package only — no docker image —
+#      so ToolHive builds the container on demand from the npm package)
+#
+# Container count on the host: ToolHive isolates every bridge-mode workload by
+# default (--isolate-network true) -> fetch = 3 containers (fetch, fetch-egress
+# Squid proxy, fetch-dns dnsmasq). memory/thinking need no outbound network ->
+# --isolate-network=false: 1 container each, no sidecars. everything is also
+# --isolate-network=false: 1 container (echo/sample tools). 7 host containers
+# total instead of 12. --transport stdio --proxy-mode streamable-http is REQUIRED
+# (without it thv assumes HTTP transport, never attaches stdin, and the
+# stdio-only server exits immediately). --network none does NOT work (proxy
+# cannot reach the stdio bridge).
+#
+# ToolHive's proxy owns the port on the host (127.0.0.1 by default — we bind
+# 0.0.0.0 so the gateway container can reach it). The container workload gets
+# no port binding at all: ToolHive runs it with AttachStdio and the host-side
+# proxy translates HTTP <-> newline-delimited JSON-RPC.
+#
+# agentgateway routes to those proxies as plain `mcp.host` targets: the
+# gateway stack contains NO docker.sock, NO docker CLI, NO container-
+# management privilege, and no bridge processes. The runtime daemon (thv)
+# owns Docker on the host and handles lifecycle: pull, deploy, health
+# monitoring, auto-restart.
+#
+#   gateway :18080 (apiKey) + :8082 (sso)
+#      |  mcp.host targets (plain HTTP)
+#      v
+#   host.docker.internal:19001/mcp   (thv proxy -> mcp/memory container)
+#   host.docker.internal:19002/mcp   (thv proxy -> mcp/fetch container)
+#   host.docker.internal:19003/mcp   (thv proxy -> mcp/sequentialthinking)
+#   host.docker.internal:19004/mcp   (thv proxy -> server-everything via npx://)
+#
+# Run with:  docker compose -f docker-compose.toolhive.yml up -d
+#            (servers started on the host with `thv run`, see README)
+#
+# NOTE: the proxy ports become plain network services on the host — bind
+# 0.0.0.0 only in trusted environments, or secure them (firewall /
+# --allowed-origins / mTLS) before exposing beyond loopback.
+# =============================================================================
+
+gateways:
+  # ---- :8080 — API-key entry (Context7-style per-user keys) ----------------
+  default:
+    port: 8080
+    apiKey:
+      mode: strict
+      location:
+        header:
+          name: x-api-key
+      keys:
+        - key: sk-mcp-gateway-demo-key
+          metadata:
+            user: mcpuser
+            role: admin
+        - key: sk-alice-demo-key
+          metadata:
+            user: alice
+            role: dev
+        - key: sk-bob-demo-key
+          metadata:
+            user: bob
+            role: dev
+
+  # ---- :8082 — MCP OAuth entry (Keycloak, MCP authorization spec) ----------
+  sso:
+    port: 8082
+
+config:
+  tracing:
+    otlpEndpoint: http://mcp-agentgateway-otel-collector:4317
+    otlpProtocol: grpc
+    randomSampling: true
+
+  logging:
+    format: json
+    level: info
+    database:
+      url: sqlite:///var/log/agentgateway/request-log.db
+
+  metrics:
+    # Prometheus-compatible /metrics endpoint on statsAddr (:15020)
+
+  standardAttributes:
+    user: "has(jwt.preferred_username) ? jwt.preferred_username : apiKey.user"
+
+  database:
+    url: sqlite:///var/log/agentgateway/request-log.db
+
+# ---------------------------------------------------------------------------
+# NOTE on sessions: MCP backends use stateful session routing by default —
+# agentgateway tracks Mcp-Session-Id and pins each client session to one
+# upstream. ToolHive's proxy maintains its own session -> container mapping,
+# so a client session maps 1:1 to a spawned server process, same as the
+# docker stdio demo.
+# ---------------------------------------------------------------------------
+
+routes:
+  # =========================================================================
+  # :8080 (default) — per-user API keys. One route per subpath; each backend
+  # target is an HTTP `mcp.host` pointing at a ToolHive proxy on the host.
+  # =========================================================================
+  - name: memory-mcp-apikey
+    gateways: [default]
+    matches:
+      - path: { pathPrefix: /memory }
+    policies:
+      cors:
+        allowOrigins: ["*"]
+        allowHeaders: ["*"]
+        exposeHeaders: ["Mcp-Session-Id"]
+      localRateLimit:
+        conditional:
+          - condition: 'apiKey.user == "alice"'
+            maxTokens: 60
+            tokensPerFill: 60
+            fillInterval: 1m
+          - condition: 'apiKey.user == "bob"'
+            maxTokens: 30
+            tokensPerFill: 30
+            fillInterval: 1m
+    backends:
+      - mcp:
+          targets:
+            - name: memory
+              mcp:
+                host: http://host.docker.internal:19001/mcp
+
+  - name: fetch-mcp-apikey
+    gateways: [default]
+    matches:
+      - path: { pathPrefix: /fetch }
+    policies:
+      cors:
+        allowOrigins: ["*"]
+        allowHeaders: ["*"]
+        exposeHeaders: ["Mcp-Session-Id"]
+      localRateLimit:
+        conditional:
+          - condition: 'apiKey.user == "alice"'
+            maxTokens: 60
+            tokensPerFill: 60
+            fillInterval: 1m
+          - condition: 'apiKey.user == "bob"'
+            maxTokens: 30
+            tokensPerFill: 30
+            fillInterval: 1m
+    backends:
+      - mcp:
+          targets:
+            - name: fetch
+              mcp:
+                host: http://host.docker.internal:19002/mcp
+
+  - name: thinking-mcp-apikey
+    gateways: [default]
+    matches:
+      - path: { pathPrefix: /thinking }
+    policies:
+      cors:
+        allowOrigins: ["*"]
+        allowHeaders: ["*"]
+        exposeHeaders: ["Mcp-Session-Id"]
+      localRateLimit:
+        conditional:
+          - condition: 'apiKey.user == "alice"'
+            maxTokens: 60
+            tokensPerFill: 60
+            fillInterval: 1m
+          - condition: 'apiKey.user == "bob"'
+            maxTokens: 30
+            tokensPerFill: 30
+            fillInterval: 1m
+    backends:
+      - mcp:
+          targets:
+            - name: thinking
+              mcp:
+                host: http://host.docker.internal:19003/mcp
+
+  - name: multiplexing-mcp-apikey
+    gateways: [default]
+    matches:
+      - path: { pathPrefix: /mcp }
+    policies:
+      cors:
+        allowOrigins: ["*"]
+        allowHeaders: ["*"]
+        exposeHeaders: ["Mcp-Session-Id"]
+      localRateLimit:
+        conditional:
+          - condition: 'apiKey.user == "alice"'
+            maxTokens: 60
+            tokensPerFill: 60
+            fillInterval: 1m
+          - condition: 'apiKey.user == "bob"'
+            maxTokens: 30
+            tokensPerFill: 30
+            fillInterval: 1m
+    backends:
+      - mcp:
+          targets:
+            - name: memory
+              mcp:
+                host: http://host.docker.internal:19001/mcp
+            - name: fetch
+              mcp:
+                host: http://host.docker.internal:19002/mcp
+            - name: thinking
+              mcp:
+                host: http://host.docker.internal:19003/mcp
+            - name: everything
+              mcp:
+                host: http://host.docker.internal:19004/mcp
+
+  # =========================================================================
+  # :8082 (sso) — Keycloak OAuth per the MCP authorization spec. Identical to
+  # the demo config except the backend targets (ToolHive proxies on the host).
+  # =========================================================================
+  - name: memory-mcp-sso
+    gateways: [sso]
+    matches:
+      - path: { pathPrefix: /memory }
+      - path: { exact: /.well-known/oauth-protected-resource/memory }
+      - path: { exact: /.well-known/oauth-authorization-server/memory }
+      - path:
+          {
+            exact: /.well-known/oauth-authorization-server/memory/client-registration,
+          }
+    policies:
+      cors:
+        allowOrigins: ["*"]
+        allowHeaders: ["*"]
+        exposeHeaders: ["Mcp-Session-Id"]
+      mcpAuthentication:
+        mode: strict
+        issuer: http://keycloak:8080/realms/mcp-demo
+        audiences: [mcp-gateway]
+        clientId: mcp-gateway
+        jwks:
+          url: http://keycloak:8080/realms/mcp-demo/protocol/openid-connect/certs
+        provider:
+          keycloak: {}
+        resourceMetadata:
+          resource: http://localhost:8082/memory
+          scopesSupported: [read:all]
+          bearerMethodsSupported: [header]
+      mcpAuthorization:
+        rules:
+          - 'jwt.preferred_username == "alice"'
+          - 'jwt.preferred_username == "bob"'
+      localRateLimit:
+        conditional:
+          - condition: 'jwt.preferred_username == "alice"'
+            maxTokens: 60
+            tokensPerFill: 60
+            fillInterval: 1m
+          - condition: 'jwt.preferred_username == "bob"'
+            maxTokens: 30
+            tokensPerFill: 30
+            fillInterval: 1m
+    backends:
+      - mcp:
+          targets:
+            - name: memory
+              mcp:
+                host: http://host.docker.internal:19001/mcp
+
+  - name: fetch-mcp-sso
+    gateways: [sso]
+    matches:
+      - path: { pathPrefix: /fetch }
+      - path: { exact: /.well-known/oauth-protected-resource/fetch }
+      - path: { exact: /.well-known/oauth-authorization-server/fetch }
+      - path:
+          {
+            exact: /.well-known/oauth-authorization-server/fetch/client-registration,
+          }
+    policies:
+      cors:
+        allowOrigins: ["*"]
+        allowHeaders: ["*"]
+        exposeHeaders: ["Mcp-Session-Id"]
+      mcpAuthentication:
+        mode: strict
+        issuer: http://keycloak:8080/realms/mcp-demo
+        audiences: [mcp-gateway]
+        clientId: mcp-gateway
+        jwks:
+          url: http://keycloak:8080/realms/mcp-demo/protocol/openid-connect/certs
+        provider:
+          keycloak: {}
+        resourceMetadata:
+          resource: http://localhost:8082/fetch
+          scopesSupported: [read:all]
+          bearerMethodsSupported: [header]
+      mcpAuthorization:
+        rules:
+          - 'jwt.preferred_username == "alice"'
+      localRateLimit:
+        conditional:
+          - condition: 'jwt.preferred_username == "alice"'
+            maxTokens: 60
+            tokensPerFill: 60
+            fillInterval: 1m
+          - condition: 'jwt.preferred_username == "bob"'
+            maxTokens: 30
+            tokensPerFill: 30
+            fillInterval: 1m
+    backends:
+      - mcp:
+          targets:
+            - name: fetch
+              mcp:
+                host: http://host.docker.internal:19002/mcp
+
+  - name: thinking-mcp-sso
+    gateways: [sso]
+    matches:
+      - path: { pathPrefix: /thinking }
+      - path: { exact: /.well-known/oauth-protected-resource/thinking }
+      - path: { exact: /.well-known/oauth-authorization-server/thinking }
+      - path:
+          {
+            exact: /.well-known/oauth-authorization-server/thinking/client-registration,
+          }
+    policies:
+      cors:
+        allowOrigins: ["*"]
+        allowHeaders: ["*"]
+        exposeHeaders: ["Mcp-Session-Id"]
+      mcpAuthentication:
+        mode: strict
+        issuer: http://keycloak:8080/realms/mcp-demo
+        audiences: [mcp-gateway]
+        clientId: mcp-gateway
+        jwks:
+          url: http://keycloak:8080/realms/mcp-demo/protocol/openid-connect/certs
+        provider:
+          keycloak: {}
+        resourceMetadata:
+          resource: http://localhost:8082/thinking
+          scopesSupported: [read:all]
+          bearerMethodsSupported: [header]
+      mcpAuthorization:
+        rules:
+          - 'jwt.preferred_username == "alice"'
+          - 'jwt.preferred_username == "bob"'
+      localRateLimit:
+        conditional:
+          - condition: 'jwt.preferred_username == "alice"'
+            maxTokens: 60
+            tokensPerFill: 60
+            fillInterval: 1m
+          - condition: 'jwt.preferred_username == "bob"'
+            maxTokens: 30
+            tokensPerFill: 30
+            fillInterval: 1m
+    backends:
+      - mcp:
+          targets:
+            - name: thinking
+              mcp:
+                host: http://host.docker.internal:19003/mcp
+
+  - name: multiplexing-mcp-sso
+    gateways: [sso]
+    matches:
+      - path: { pathPrefix: /mcp }
+      - path: { exact: /.well-known/oauth-protected-resource/mcp }
+      - path: { exact: /.well-known/oauth-authorization-server/mcp }
+      - path:
+          {
+            exact: /.well-known/oauth-authorization-server/mcp/client-registration,
+          }
+    policies:
+      cors:
+        allowOrigins: ["*"]
+        allowHeaders: ["*"]
+        exposeHeaders: ["Mcp-Session-Id"]
+      mcpAuthentication:
+        mode: strict
+        issuer: http://keycloak:8080/realms/mcp-demo
+        audiences: [mcp-gateway]
+        clientId: mcp-gateway
+        jwks:
+          url: http://keycloak:8080/realms/mcp-demo/protocol/openid-connect/certs
+        provider:
+          keycloak: {}
+        resourceMetadata:
+          resource: http://localhost:8082/mcp
+          scopesSupported: [read:all]
+          bearerMethodsSupported: [header]
+      mcpAuthorization:
+        rules:
+          - 'jwt.preferred_username == "alice"'
+          - 'jwt.preferred_username == "bob" && mcp.tool.target != "fetch"'
+      localRateLimit:
+        conditional:
+          - condition: 'jwt.preferred_username == "alice"'
+            maxTokens: 60
+            tokensPerFill: 60
+            fillInterval: 1m
+          - condition: 'jwt.preferred_username == "bob"'
+            maxTokens: 30
+            tokensPerFill: 30
+            fillInterval: 1m
+    backends:
+      - mcp:
+          targets:
+            - name: memory
+              mcp:
+                host: http://host.docker.internal:19001/mcp
+            - name: fetch
+              mcp:
+                host: http://host.docker.internal:19002/mcp
+            - name: thinking
+              mcp:
+                host: http://host.docker.internal:19003/mcp
+            - name: everything
+              mcp:
+                host: http://host.docker.internal:19004/mcp
+
+# ---------------------------------------------------------------------------
+# Top-level `mcp:` target set for the sso gateway — mirrors the
+# multiplexing-mcp-sso route so the Admin UI playground (:15000) can test the
+# multiplexed endpoint with SSO directly. Same 4 servers via ToolHive proxies.
+# ---------------------------------------------------------------------------
+mcp:
+  gateways:
+    - sso
+  targets:
+    - name: memory
+      mcp:
+        host: http://host.docker.internal:19001/mcp
+    - name: fetch
+      mcp:
+        host: http://host.docker.internal:19002/mcp
+    - name: thinking
+      mcp:
+        host: http://host.docker.internal:19003/mcp
+    - name: everything
+      mcp:
+        host: http://host.docker.internal:19004/mcp
+  policies:
+    cors:
+      allowOrigins:
+        - "*"
+        - http://localhost:15000
+      allowHeaders:
+        - "*"
+      allowMethods:
+        - GET
+        - POST
+      exposeHeaders:
+        - Mcp-Session-Id
+    mcpAuthentication:
+      mode: strict
+      issuer: http://keycloak:8080/realms/mcp-demo
+      audiences:
+        - mcp-gateway
+      clientId: mcp-gateway
+      jwks:
+        url: http://keycloak:8080/realms/mcp-demo/protocol/openid-connect/certs
+      provider:
+        keycloak: {}
+      resourceMetadata:
+        resource: http://localhost:8082/mcp
+        scopesSupported:
+          - read:all
+        bearerMethodsSupported:
+          - header
+    mcpAuthorization:
+      rules:
+        - jwt.preferred_username == "alice"
+        - jwt.preferred_username == "bob" && mcp.tool.target != "fetch"
+    localRateLimit:
+      conditional:
+        - condition: jwt.preferred_username == "alice"
+          maxTokens: 60
+          tokensPerFill: 60
+          fillInterval: 1m
+        - condition: jwt.preferred_username == "bob"
+          maxTokens: 30
+          tokensPerFill: 30
+          fillInterval: 1m

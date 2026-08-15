@@ -1,0 +1,5 @@
+# Local artifacts
+logs/
+bin/
+obj/
+TestResults/

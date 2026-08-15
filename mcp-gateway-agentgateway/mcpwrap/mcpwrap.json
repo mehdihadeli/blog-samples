@@ -1,0 +1,18 @@
+{
+  "workloads": {
+    "memory": {
+      "image": "docker.io/mcp/memory",
+      "port": 19101,
+      "noNetwork": true
+    },
+    "fetch": {
+      "image": "docker.io/mcp/fetch",
+      "port": 19102
+    },
+    "sequentialthinking": {
+      "image": "docker.io/mcp/sequentialthinking",
+      "port": 19103,
+      "noNetwork": true
+    }
+  }
+}

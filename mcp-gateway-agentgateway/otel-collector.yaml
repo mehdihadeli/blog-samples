@@ -1,0 +1,73 @@
+# OpenTelemetry Collector — receives OTLP from the agentgateway container and
+# fans out:
+#   traces  -> Tempo + Langfuse (OTLP/HTTP) + Arize Phoenix (OTLP/gRPC)
+#   metrics -> Prometheus (scraped)
+#   logs    -> Loki (OTLP)
+#
+# Gateway stdout logs do NOT pass through here anymore: the gateway container
+# uses the Docker loki log driver (see docker-compose.toolhive.yml) which
+# pushes straight to Loki /api/v1/push — no busybox tee, no filelog leg.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch: {}
+
+exporters:
+  debug:
+    verbosity: basic
+
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+
+  # Langfuse OTLP ingest is HTTP-only (gRPC not supported). Self-hosted
+  # endpoint: <web>:3000/api/public/otel — the otlphttp exporter appends
+  # /v1/traces, so set the per-signal traces_endpoint to the full path.
+  # Basic auth uses the headless-initialized project keys (see langfuse-web
+  # LANGFUSE_INIT_PROJECT_* env in docker-compose.yml).
+  # Simplification: Langfuse v3 (no ClickHouse/MinIO) — OTLP works since 3.22.
+  otlphttp/langfuse:
+    traces_endpoint: http://langfuse-web:3000/api/public/otel/v1/traces
+    headers:
+      Authorization: "Basic cGstbGYtZGVtby1wdWJsaWMta2V5OnNrLWxmLWRlbW8tc2VjcmV0LWtleQ==" # base64(pk-lf-demo-public-key:sk-lf-demo-secret-key)
+
+  # Arize Phoenix accepts OTLP natively on gRPC :4317 (no collector hop
+  # required for direct export; here we fan out through the collector).
+  otlp/phoenix:
+    endpoint: phoenix:4317
+    tls:
+      insecure: true
+
+  # Loki native OTLP is HTTP-only at /otlp/v1/logs (no gRPC receiver), so use
+  # otlphttp and target the path via the per-signal logs_endpoint (a base
+  # `endpoint` can't carry a path: "invalid port 3100/otlp").
+  otlphttp/loki:
+    logs_endpoint: http://loki:3100/otlp/v1/logs
+
+  # 8889 instead of the conventional 8888: Docker Desktop's port forwarder
+  # can hold 8888 and make the collector crash-loop with "bind: address
+  # already in use" even though the host port is free.
+  prometheus:
+    endpoint: 0.0.0.0:8889
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/tempo, otlphttp/langfuse, otlp/phoenix, debug]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus, debug]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/loki, debug]

@@ -1,0 +1,345 @@
+# =============================================================================
+# docker-compose.stdio.yml — the agentgateway MCP gateway sample with the
+# NATIVE STDIO runtime (approach 1: agentgateway spawns the MCP servers
+# itself as `stdio` subprocesses).
+#
+# NOTE what this file does NOT contain: a gateway service. In this variant
+# the gateway runs as a HOST BINARY (`agentgateway -f config.yaml` — the
+# documented flow for `stdio` targets, see
+# https://agentgateway.dev/docs/standalone/latest/mcp/connect/stdio/).
+# There is no custom gateway image and no gateway container: the binary
+# spawns `mcp-server-memory` / `mcp-server-fetch` /
+# `npx @modelcontextprotocol/server-sequential-thinking` as subprocesses.
+#
+# This compose file runs ONLY the shared infrastructure the host gateway
+# talks to:
+#   keycloak       : OIDC IdP (realm mcp-demo, client mcp-gateway, :8081)
+#   observability  : otel-collector (OTLP) + prometheus + tempo + loki +
+#                    grafana + langfuse (web/worker/postgres/redis/clickhouse/
+#                    minio) + phoenix
+#
+# The host gateway reaches them on PUBLISHED host ports:
+#   - OTLP  : http://localhost:4317  (config.stdio.yaml otlpEndpoint)
+#   - JWKS  : http://keycloak:8080/... (issuer/jwks in config.stdio.yaml —
+#             the `127.0.0.1 keycloak` hosts entry makes this resolve)
+#   - metrics scrape: prometheus scrapes `gateway:15020`; the `gateway`
+#             extra_host below maps that name to the HOST, where the binary
+#             listens (same trick as host.docker.internal, but keeps
+#             prometheus.yml unchanged).
+#
+# Start it with scripts/start-stdio.sh (installs the agentgateway binary +
+# the MCP server packages on the host, then brings this stack up).
+#
+# NOTE: this stack publishes well-known host ports (18080/8082/8080/3000/...)
+# — run it when no other gateway stack is using them (one variant at a time).
+# =============================================================================
+name: docker-compose-stdio
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: mcp-agentgateway-keycloak
+    restart: unless-stopped
+    command: ["start-dev", "--import-realm"]
+    environment:
+      - KC_BOOTSTRAP_ADMIN_USERNAME=admin
+      - KC_BOOTSTRAP_ADMIN_PASSWORD=admin
+      - KC_HEALTH_ENABLED=true
+    ports:
+      # Host 8080 = Keycloak so the browser flow (VS Code Copilot OAuth
+      # popup, and the `127.0.0.1 keycloak` hosts entry) reaches Keycloak.
+      - "8080:8080" # Keycloak UI/issuer (browser flow: http://keycloak:8080)
+      - "8081:8080" # Keycloak console / tests (alternate host port)
+    volumes:
+      # Realm import (first boot): realm mcp-demo, client mcp-gateway,
+      # user mcpuser/mcpuser123. frontendUrl attr pins the JWT issuer to
+      # http://keycloak:8080/realms/mcp-demo (in-network name, same for
+      # browser via the hosts entry).
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+      # Persistent H2 data dir: keeps the realm + signing keys across
+      # `docker compose down`/`up` (keycloak recreates). Without it every
+      # recreate mints NEW signing keys, so the gateway's cached JWKS stops
+      # matching and the SSO port 401s with "token uses the unknown key".
+      # NOTE: the official image runs as uid 1000 — scripts/start-*.sh
+      # chowns this volume so keycloak can write.
+      - keycloak-data:/opt/keycloak/data
+    healthcheck:
+      test: [
+          "CMD-SHELL",
+          # Keycloak 26 serves /health/ready on the management interface
+          # (port 9000), not on the main HTTP port 8080.
+          "exec 3<>/dev/tcp/localhost/9000 && echo -e 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 && cat <&3 | grep -q '200 OK'",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.146.0
+    container_name: mcp-agentgateway-otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "4317:4317" # OTLP gRPC (host gateway -> localhost:4317)
+      - "4318:4318" # OTLP HTTP
+    depends_on:
+      - tempo
+      - loki
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: mcp-agentgateway-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    extra_hosts:
+      # prometheus.yml scrapes `gateway:15020`; the host gateway binary
+      # listens on 15020, so map the name to the host (same as
+      # host.docker.internal). Keeps prometheus.yml identical across variants.
+      - "gateway:host-gateway"
+
+  tempo:
+    image: grafana/tempo:2.7.1
+    container_name: mcp-agentgateway-tempo
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./tempo.yaml:/etc/tempo.yaml:ro
+    ports:
+      - "3200:3200" # Tempo query API (Grafana datasource)
+
+  loki:
+    image: grafana/loki:3.3.2
+    container_name: mcp-agentgateway-loki
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/config.yaml"]
+    volumes:
+      - ./loki-config.yaml:/etc/loki/config.yaml:ro
+    ports:
+      - "3100:3100" # Loki API + OTLP ingest (/otlp) + docker driver push
+
+  grafana:
+    image: grafana/grafana-oss:11.4.0
+    container_name: mcp-agentgateway-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+
+  # ---------------------------------------------------------------------------
+  # LLM observability: Langfuse (self-hosted v3) + Arize Phoenix
+  #
+  # The gateway exports OTLP/gRPC to otel-collector:4317 only; the collector
+  # fans traces out to Tempo, Langfuse (OTLP/HTTP) and Phoenix (OTLP/gRPC) —
+  # see otel-collector.yaml.
+  #
+  # Langfuse v3 is the smallest OTLP-capable version (OTLP since v3.22) but
+  # it still requires the full data stack: web + worker + postgres + redis +
+  # clickhouse + minio (v3 made ClickHouse and the S3 event-upload bucket
+  # mandatory — an empty S3 bucket fails its zod env validation, so MinIO
+  # cannot be dropped). Headless init (LANGFUSE_INIT_*) auto-creates the
+  # admin user + demo project with the keys the collector Basic-auths with:
+  #   public key: pk-lf-demo-public-key   secret key: sk-lf-demo-secret-key
+  # ---------------------------------------------------------------------------
+  langfuse-web:
+    image: langfuse/langfuse:3
+    container_name: mcp-agentgateway-langfuse-web
+    restart: unless-stopped
+    depends_on:
+      postgres-langfuse:
+        condition: service_healthy
+      redis-langfuse:
+        condition: service_healthy
+      clickhouse-langfuse:
+        condition: service_healthy
+      minio-langfuse:
+        condition: service_healthy
+    ports:
+      - "3001:3000" # Langfuse UI (grafana owns :3000) + OTLP HTTP ingest
+    environment:
+      - NEXTAUTH_URL=http://localhost:3001
+      - NEXTAUTH_SECRET=change-me-nextauth-secret-12345
+      - SALT=change-me-salt
+      - ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000
+      - DATABASE_URL=postgresql://postgres:postgres@postgres-langfuse:5432/postgres
+      - REDIS_HOST=redis-langfuse
+      - REDIS_PORT=6379
+      - CLICKHOUSE_URL=http://clickhouse-langfuse:8123
+      - CLICKHOUSE_MIGRATION_URL=clickhouse://clickhouse-langfuse:9000
+      - CLICKHOUSE_USER=clickhouse
+      - CLICKHOUSE_PASSWORD=clickhouse
+      - LANGFUSE_S3_EVENT_UPLOAD_BUCKET=langfuse
+      - LANGFUSE_S3_EVENT_UPLOAD_REGION=auto
+      - LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID=minio
+      - LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY=miniosecret
+      - LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT=http://minio-langfuse:9000
+      - LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE=true
+      - LANGFUSE_S3_EVENT_UPLOAD_PREFIX=events/
+      - LANGFUSE_S3_MEDIA_UPLOAD_BUCKET=langfuse
+      - LANGFUSE_S3_MEDIA_UPLOAD_REGION=auto
+      - LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID=minio
+      - LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY=miniosecret
+      - LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT=http://minio-langfuse:9000
+      - LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE=true
+      - LANGFUSE_S3_MEDIA_UPLOAD_PREFIX=media/
+      # Headless init — creates admin user + demo project with known keys
+      # (v3 also requires LANGFUSE_INIT_ORG_ID / LANGFUSE_INIT_PROJECT_ID)
+      - LANGFUSE_INIT_ORG_ID=org-demo
+      - LANGFUSE_INIT_ORG_NAME=Demo Org
+      - LANGFUSE_INIT_PROJECT_ID=proj-demo
+      - LANGFUSE_INIT_PROJECT_NAME=agentgateway-demo
+      - LANGFUSE_INIT_PROJECT_PUBLIC_KEY=pk-lf-demo-public-key
+      - LANGFUSE_INIT_PROJECT_SECRET_KEY=sk-lf-demo-secret-key
+      - LANGFUSE_INIT_USER_EMAIL=admin@langfuse.local
+      - LANGFUSE_INIT_USER_NAME=admin
+      - LANGFUSE_INIT_USER_PASSWORD=admin123
+
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3
+    container_name: mcp-agentgateway-langfuse-worker
+    restart: unless-stopped
+    depends_on:
+      postgres-langfuse:
+        condition: service_healthy
+      redis-langfuse:
+        condition: service_healthy
+      clickhouse-langfuse:
+        condition: service_healthy
+      minio-langfuse:
+        condition: service_healthy
+    environment:
+      - NEXTAUTH_URL=http://localhost:3001
+      - SALT=change-me-salt
+      - ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000
+      - DATABASE_URL=postgresql://postgres:postgres@postgres-langfuse:5432/postgres
+      - REDIS_HOST=redis-langfuse
+      - REDIS_PORT=6379
+      - CLICKHOUSE_URL=http://clickhouse-langfuse:8123
+      - CLICKHOUSE_MIGRATION_URL=clickhouse://clickhouse-langfuse:9000
+      - CLICKHOUSE_USER=clickhouse
+      - CLICKHOUSE_PASSWORD=clickhouse
+      - CLICKHOUSE_CLUSTER_ENABLED=false
+      - LANGFUSE_S3_EVENT_UPLOAD_BUCKET=langfuse
+      - LANGFUSE_S3_EVENT_UPLOAD_REGION=auto
+      - LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID=minio
+      - LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY=miniosecret
+      - LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT=http://minio-langfuse:9000
+      - LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE=true
+      - LANGFUSE_S3_EVENT_UPLOAD_PREFIX=events/
+      - LANGFUSE_S3_MEDIA_UPLOAD_BUCKET=langfuse
+      - LANGFUSE_S3_MEDIA_UPLOAD_REGION=auto
+      - LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID=minio
+      - LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY=miniosecret
+      - LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT=http://minio-langfuse:9000
+      - LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE=true
+      - LANGFUSE_S3_MEDIA_UPLOAD_PREFIX=media/
+
+  postgres-langfuse:
+    image: postgres:15
+    container_name: mcp-agentgateway-langfuse-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=postgres
+    volumes:
+      - langfuse_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  redis-langfuse:
+    image: redis:7
+    container_name: mcp-agentgateway-langfuse-redis
+    restart: unless-stopped
+    volumes:
+      - langfuse_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 10s
+      retries: 10
+
+  clickhouse-langfuse:
+    image: clickhouse/clickhouse-server:25.12
+    container_name: mcp-agentgateway-langfuse-clickhouse
+    restart: unless-stopped
+    user: "101:101"
+    environment:
+      - CLICKHOUSE_DB=default
+      - CLICKHOUSE_USER=clickhouse
+      - CLICKHOUSE_PASSWORD=clickhouse
+    volumes:
+      - langfuse_clickhouse_data:/var/lib/clickhouse
+      - langfuse_clickhouse_logs:/var/log/clickhouse-server
+      # Embedded keeper: Langfuse migrations create ReplicatedMergeTree
+      # tables ON CLUSTER default — a single-node ClickHouse needs a keeper.
+      - ./clickhouse-keeper.xml:/etc/clickhouse-server/config.d/keeper.xml:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:8123/ping",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 1s
+
+  minio-langfuse:
+    image: cgr.dev/chainguard/minio
+    container_name: mcp-agentgateway-langfuse-minio
+    restart: unless-stopped
+    entrypoint: sh
+    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
+    environment:
+      - MINIO_ROOT_USER=minio
+      - MINIO_ROOT_PASSWORD=miniosecret
+    ports:
+      - "127.0.0.1:9092:9000" # S3 API (loopback only; prometheus owns :9090)
+      - "127.0.0.1:9093:9001" # MinIO console
+    volumes:
+      - langfuse_minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 1s
+      timeout: 5s
+      retries: 5
+      start_period: 1s
+
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    container_name: mcp-agentgateway-phoenix
+    restart: unless-stopped
+    environment:
+      # Example-only: disable Phoenix auth so traces are visible immediately
+      # at http://localhost:6006 without creating a user.
+      - PHOENIX_ENABLE_AUTH=false
+    ports:
+      - "6006:6006" # Phoenix UI (HTTP) + OTLP HTTP ingest
+      # OTLP gRPC ingest stays in-network: the collector exports to
+      # phoenix:4317 and the host :4317 is already the collector's.
+
+volumes:
+  keycloak-data:
+  langfuse_postgres_data:
+  langfuse_redis_data:
+  langfuse_clickhouse_data:
+  langfuse_clickhouse_logs:
+  langfuse_minio_data:
