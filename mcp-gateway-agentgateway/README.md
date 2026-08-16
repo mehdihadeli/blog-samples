@@ -1,20 +1,23 @@
-# MCP Gateway Sample — agentgateway (native stdio / ToolHive / mcpwrap)
+# MCP Gateway Sample — agentgateway (native stdio / ToolHive / mcpwrap / vMCP)
 
 Bridge multiple **stdio-based** MCP servers behind one unified HTTP gateway
 with subpath routing, API-key authentication, tool federation, and
-OpenTelemetry observability (Grafana stack). The sample ships **three
-runtimes** for the same gateway config, each with its own compose file,
+OpenTelemetry observability (Grafana stack). The sample ships **four
+runtimes** for the same MCP server set, each with its own compose file,
 config, and start/stop scripts — pick one, run one at a time:
 
-| Approach                | What runs the MCP servers                                                                                                            | Gateway is…                                                                               | Files                                                         |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| **1. Native `stdio`**   | the **gateway itself** spawns each server as a host subprocess (`stdio: { cmd, args }`)                                              | a **host binary** (`agentgateway -f config.yaml`) — no gateway container, no custom image | `config.stdio.yaml` + `docker-compose.stdio.yml` (infra only) |
-| **2. ToolHive (`thv`)** | `thv` daemon runs all **4** servers (3 official images + `everything` built on demand from npm via `npx://`), proxies stdio→HTTP     | **stock `agentgateway` container** in the compose stack                                   | `config.toolhive.yaml` + `docker-compose.toolhive.yml`        |
-| **3. `mcpwrap`**        | bundled Go wrapper bridges stdio→HTTP, runs the 3 official images as plain stdio containers (**docker images only — teaching/demo**) | **stock `agentgateway` container** in the compose stack                                   | `config.mcpwrap.yaml` + `docker-compose.mcpwrap.yml`          |
+| Approach                 | What runs the MCP servers                                                                                                            | Gateway is…                                                                                                           | Files                                                                                 |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| **1. Native `stdio`**    | the **gateway itself** spawns each server as a host subprocess (`stdio: { cmd, args }`)                                              | a **host binary** (`agentgateway -f config.yaml`) — no gateway container, no custom image                             | `deployments/config.stdio.yaml` + `deployments/docker-compose.stdio.yml` (infra only) |
+| **2. ToolHive (`thv`)**  | `thv` daemon runs all **4** servers (3 official images + `everything` built on demand from npm via `npx://`), proxies stdio→HTTP     | **stock `agentgateway` container** in the compose stack                                                               | `deployments/config.toolhive.yaml` + `deployments/docker-compose.toolhive.yml`        |
+| **3. `mcpwrap`**         | bundled Go wrapper bridges stdio→HTTP, runs the 3 official images as plain stdio containers (**docker images only — teaching/demo**) | **stock `agentgateway` container** in the compose stack                                                               | `deployments/config.mcpwrap.yaml` + `deployments/docker-compose.mcpwrap.yml`          |
+| **4. vMCP (no gateway)** | `thv` daemon runs the **4** servers (same as approach 2), proxies stdio→HTTP                                                         | **no agentgateway at all** — ToolHive's own **Virtual MCP Server** (`thv vmcp serve`) aggregates + OIDC-protects them | `deployments/vmcp.yaml` + `deployments/docker-compose.vmcp.yml` (keycloak only)       |
 
 The gateway (stock image or host binary), Keycloak, and the full
 observability stack are the same everywhere — only the backend targets
 differ. No docker.sock anywhere; the gateway never talks to Docker.
+Approach 4 replaces the gateway entirely with ToolHive's vMCP — see
+[Approach 4 below](#approach-4-optional--toolhives-own-gateway-virtual-mcp-server-vmcp).
 
 > **Which one for production?** **Approach 2 (ToolHive)** — the stock
 > hardened gateway image plus real workload lifecycle (auto-restart,
@@ -23,6 +26,9 @@ differ. No docker.sock anywhere; the gateway never talks to Docker.
 > most agentgateway-native zero-dependency option; `mcpwrap` (3) is kept
 > as a **teaching tool** — it shows the stdio→HTTP bridge ToolHive hides,
 > but it cannot host npm-only servers and has no production lifecycle.
+> Approach 4 (vMCP) is a **ToolHive-native alternative** — useful when you
+> want pure MCP aggregation + OAuth without a full AI gateway (see the
+> feature comparison in the article).
 
 ## What it does
 
@@ -35,7 +41,7 @@ differ. No docker.sock anywhere; the gateway never talks to Docker.
 
 - One gateway on `http://localhost:18080` (API key) and `http://localhost:8082` (SSO), four MCP endpoints (subpaths).
 - The MCP servers run as stdio processes/containers on the **host**, in one
-  of three ways — see the [approach table](#mcp-gateway-sample--agentgateway-native-stdio--toolhive--mcpwrap)
+  of three ways — see the [approach table](#mcp-gateway-sample--agentgateway-native-stdio--toolhive--mcpwrap--vmcp)
   and [three approaches section](#the-three-approaches--which-runtime-should-you-use):
   (1) **native `stdio`** — the gateway **binary** forks them directly, (2)
   ToolHive's `thv` daemon (`host.docker.internal:19001-19004/mcp`, the
@@ -86,7 +92,7 @@ only) does not. All four show up in the Admin UI under **MCP → Servers**
 of the stdio + ToolHive variants.
 
 ```yaml
-# config.stdio.yaml — /mcp route: FOUR targets in ONE backend
+# deployments/config.stdio.yaml — /mcp route: FOUR targets in ONE backend
 - name: multiplexing-mcp-apikey
   gateways: [default]
   matches:
@@ -251,7 +257,7 @@ flowchart LR
 
 The launcher: (1) brings up the MCP servers on the host via `thv`, (2)
 installs the Loki log driver if missing, and (3) runs
-`docker compose -f docker-compose.toolhive.yml up -d` — the gateway,
+`docker compose -f deployments/docker-compose.toolhive.yml up -d` — the gateway,
 Keycloak, and the observability stack come up automatically.
 
 ### Manual start (for reference)
@@ -261,10 +267,10 @@ Keycloak, and the observability stack come up automatically.
 ./scripts/start-toolhive.sh
 
 # 2) gateway + Keycloak + observability (stock gateway image, no build)
-docker compose -f docker-compose.toolhive.yml up -d
+docker compose -f deployments/docker-compose.toolhive.yml up -d
 
 # 3) follow the gateway logs (docker loki driver pushes them to Loki too)
-docker compose -f docker-compose.toolhive.yml logs -f gateway
+docker compose -f deployments/docker-compose.toolhive.yml logs -f gateway
 ```
 
 ## Verify
@@ -307,11 +313,11 @@ spawn commands _where the gateway process runs_, and the stock gateway
 container image has no Node/Python to run `npx` / `uvx`. The documented
 flow is exactly what this variant does: install the binary
 (`curl -sL https://agentgateway.dev/install | bash`), run
-`agentgateway -f config.stdio.yaml`. **No custom gateway image** — nothing
+`agentgateway -f deployments/config.stdio.yaml`. **No custom gateway image** — nothing
 to build, ever.
 
 ```yaml
-# config.stdio.yaml — the `stdio` target is the whole runtime
+# deployments/config.stdio.yaml — the `stdio` target is the whole runtime
 backends:
   - mcp:
       targets:
@@ -333,17 +339,17 @@ backends:
             args: ["-y", "@modelcontextprotocol/server-everything"]
 ```
 
-`docker-compose.stdio.yml` runs **Keycloak + observability only** — there is
+`deployments/docker-compose.stdio.yml` runs **Keycloak + observability only** — there is
 no gateway service and no MCP-server container; the gateway process and its
 four server subprocesses live on the host:
 
 ```
-host:  agentgateway -f config.stdio.yaml   (:18080 apiKey, :8082 SSO, :15000 UI, :15020 metrics)
+host:  agentgateway -f deployments/config.stdio.yaml   (:18080 apiKey, :8082 SSO, :15000 UI, :15020 metrics)
          ├─ npx @modelcontextprotocol/server-memory          (stdio subprocess)
          ├─ uvx --with "mcp<2" mcp-server-fetch                 (stdio subprocess)
          ├─ npx @modelcontextprotocol/server-sequential-thinking (stdio subprocess)
          └─ npx @modelcontextprotocol/server-everything          (stdio subprocess)
-compose (docker-compose.stdio.yml): keycloak + otel-collector + prometheus + tempo + loki + grafana + langfuse + phoenix
+compose (deployments/docker-compose.stdio.yml): keycloak + otel-collector + prometheus + tempo + loki + grafana + langfuse + phoenix
 ```
 
 ```bash
@@ -358,7 +364,7 @@ the server packages on demand, (4) brings up the infra compose stack, and
 (5) starts the gateway **detached** (`nohup`, pid in
 `logs/agentgateway-stdio.pid`) and waits for :18080.
 
-**What changed vs the container variants** (all in `config.stdio.yaml`):
+**What changed vs the container variants** (all in `deployments/config.stdio.yaml`):
 
 - **Ports**: the apiKey gateway binds host **18080** directly (Keycloak owns
   8080 on the host) — no 8080→18080 publish mapping needed.
@@ -368,7 +374,7 @@ the server packages on demand, (4) brings up the infra compose stack, and
 - **Request-log DB**: `sqlite:///tmp/agentgateway/request-log.db` — a
   host-writable path instead of the container volume.
 - **Metrics**: Prometheus scrapes the host binary via
-  `extra_hosts: ["gateway:host-gateway"]` in `docker-compose.stdio.yml`.
+  `extra_hosts: ["gateway:host-gateway"]` in `deployments/docker-compose.stdio.yml`.
 - **Logs**: the gateway writes `logs/agentgateway-stdio.log` (no container
   log driver for a host process); Loki gets the infra containers' logs only.
 - **JWKS / token issuer**: still `http://keycloak:8080/...` — the host
@@ -418,7 +424,7 @@ mcpwrap-<name>`), reads newline-delimited JSON-RPC from stdout, writes
 requests back into stdin, and exposes the proxy on the host as
 `host.docker.internal:19101-19103/mcp`. agentgateway targets it as a plain
 HTTP backend, so the routes/auth/policies are identical — only the backend
-ports differ (`config.mcpwrap.yaml` vs `config.toolhive.yaml`).
+ports differ (`deployments/config.mcpwrap.yaml` vs `deployments/config.toolhive.yaml`).
 
 > **Scope: teaching / demo only — not for production.** `mcpwrap` exists to
 > make the stdio→HTTP bridge visible: you can watch the wrapper spawn each
@@ -446,8 +452,8 @@ ports differ (`config.mcpwrap.yaml` vs `config.toolhive.yaml`).
 The launcher builds `mcpwrap/mcpwrap.exe` (Go 1.24+), starts
 `mcpwrap up -f mcpwrap/mcpwrap.json` detached (pid in `logs/mcpwrap.pid`),
 waits until the three proxies answer `/healthz`, then brings up
-`docker-compose.mcpwrap.yml` — the same gateway + Keycloak + observability,
-with the gateway container mounted on `config.mcpwrap.yaml` (targets
+`deployments/docker-compose.mcpwrap.yml` — the same gateway + Keycloak + observability,
+with the gateway container mounted on `deployments/config.mcpwrap.yaml` (targets
 `host.docker.internal:19101-19103/mcp`). `mcpwrap` requests are serialized
 per workload and matched by JSON-RPC `id`.
 
@@ -476,7 +482,7 @@ JSON-RPC over stdin/stdout — **no bridge, no extra daemon, no custom image**
 (`stdio` targets run _where the gateway runs_; the stock gateway container
 has no Node/Python, so the gateway must be the **host binary**:
 `agentgateway -f config.yaml`). Implemented in this sample:
-`config.stdio.yaml` + `docker-compose.stdio.yml` (infra only) +
+`deployments/config.stdio.yaml` + `deployments/docker-compose.stdio.yml` (infra only) +
 `scripts/start-stdio.sh`.
 
 |                                                                  | **1. native `stdio` (host binary)**                                 | **2. ToolHive (`thv`)** — recommended                               | **3. `mcpwrap` (Go wrapper, teaching)**  |
@@ -514,6 +520,127 @@ has no Node/Python, so the gateway must be the **host binary**:
   docker-images-only and has no production lifecycle.
 - **No bridge at all** whenever the server already speaks HTTP — point
   `mcp.host` straight at it and skip all three.
+
+## Approach 4 (optional) — ToolHive's own gateway: Virtual MCP Server (vMCP)
+
+All three approaches above use **agentgateway** as the gateway. ToolHive
+itself ships a gateway layer — the **Virtual MCP Server (vMCP)** — that
+aggregates a ToolHive group's MCP servers into **one unified endpoint** and
+can OIDC-protect it with Keycloak, no agentgateway involved. This sample
+implements it as **Approach 4** to make the comparison concrete.
+
+What runs where (no gateway container at all):
+
+```
+host:   thv run ... --group mcp-vmcp        (memory :19011, fetch :19012,
+         └─ stdio→HTTP proxies)              sequentialthinking :19013, everything :19014)
+host:   thv vmcp serve --config deployments/vmcp.yaml   (http://127.0.0.1:4483/mcp — aggregates all 4,
+         └─ OIDC resource server)           validates Keycloak JWTs, tools prefixed mcp-<workload>_)
+compose (deployments/docker-compose.vmcp.yml): keycloak only (realm mcp-demo, client mcp-gateway)
+```
+
+Files:
+
+| File                                  | Purpose                                                                                       |
+| ------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `deployments/vmcp.yaml`               | vMCP config: groupRef + static backends + `incomingAuth.oidc` (Keycloak) + prefix aggregation |
+| `deployments/docker-compose.vmcp.yml` | Keycloak only (same realm-export as the other variants)                                       |
+| `scripts/start-vmcp.sh`               | prereqs (incl. hosts-entry check) → 4 thv workloads → Keycloak → `thv vmcp serve`             |
+| `scripts/stop-vmcp.sh`                | kill vMCP pid → thv workloads → group → Keycloak down                                         |
+
+```bash
+./scripts/start-vmcp.sh   # workloads -> keycloak -> thv vmcp serve :4483
+./scripts/stop-vmcp.sh    # stop everything
+```
+
+Mint a token and list the aggregated tools (no API key):
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8081/realms/mcp-demo/protocol/openid-connect/token \
+  -d 'grant_type=password' -d 'client_id=mcp-gateway' \
+  -d 'username=alice' -d 'password=alice123' | jq -r .access_token)
+curl -s -X POST http://127.0.0.1:4483/mcp \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+# -> ~24 tools, namespaced: mcp-memory_create_entities, mcp-fetch_fetch,
+#    mcp-sequentialthinking_sequentialthinking, mcp-everything_echo, ...
+# without a token -> 401 (OIDC middleware)
+```
+
+How it maps to the agentgateway concepts in this sample:
+
+- **Multiplexing** — the vMCP's `aggregation.conflictResolution: prefix`
+  with `prefixFormat: "{workload}_"` is the same namespacing agentgateway
+  applies on its `/mcp` route. One connection string, all tools.
+- **mcpAuthentication** — vMCP's `incomingAuth: { type: oidc, issuer,
+clientId, audience }` is the same **MCP authorization spec** resource
+  server: it validates Keycloak JWTs (audience `mcp-gateway`, live JWKS
+  discovery) and serves the RFC 9728 protected-resource metadata endpoint
+  (`/.well-known/oauth-protected-resource`), exactly what
+  `mcpAuthentication` does on `:8082`. The SAME Keycloak realm + client
+  work for both, so one minted token authenticates to agentgateway **and**
+  to the vMCP.
+
+  Two gotchas we hit live (both fixed in this sample):
+  - **Keycloak tokens need an explicit `sub` claim.** This realm's client
+    `mcp-gateway` had only a `preferred-username` mapper, and Keycloak 26
+    does not emit `sub` for a custom client scope setup — while vMCP's
+    identity layer hard-requires `sub` (OIDC Core 5.1). Without it every
+    request fails `401 invalid_token: Invalid authentication claims`.
+    `deployments/keycloak/realm-export.json` now adds a `sub` protocol mapper
+    (`oidc-sub-mapper`). If you re-created your Keycloak from an older
+    export, re-add both mappers below to the live client (Admin UI → client
+    `mcp-gateway` → Client scopes → Add mapper) or re-import.
+  - **Tokens also need the `audience` mapper** when the vMCP config sets
+    `audience: mcp-gateway` — without an `oidc-audience-mapper` the access
+    token has no `aud` claim at all and fails `invalid_token: invalid
+audience`. Same mapper (`audience-mcp-gateway`) is in the export now.
+  - **The vMCP serves NO protected-resource metadata without
+    `resource`.** `GET /.well-known/oauth-protected-resource` returns 404
+    (source: `NewAuthInfoHandler` returns 404 when `resourceURL` is empty).
+    `deployments/vmcp.yaml` sets `resource: http://127.0.0.1:4483/mcp` — then the
+    endpoint returns `{"resource": ..., "authorization_servers":
+["http://keycloak:8080/realms/mcp-demo"], "bearer_methods_supported":
+["header"], "scopes_supported": ["openid"]}`.
+
+- **API keys — the gap** — vMCP has **no incoming API-key auth**
+  (`incomingAuth` supports only `anonymous`/`oidc`/`local`). If you need
+  Context7-style keys, put a gateway (or any API gateway) in front of the
+  vMCP, or use agentgateway's `:18080` gateway. What vMCP offers instead is
+  **outgoing** auth strategies for backends — static header injection and
+  passthrough headers, which let the vMCP forward credentials to protected
+  upstreams:
+
+  ```yaml
+  outgoingAuth:
+    source: inline
+    backends:
+      mcp-myapi:
+        type: headerInjection
+        headerInjection:
+          headers:
+            Authorization: "Bearer <static-key>"
+    # or forward the client's own token to the backend:
+    default:
+      type: passthroughHeaders
+      passthroughHeaders: ["Authorization"]
+  ```
+
+- **mcpAuthorization** — the vMCP equivalent is **Cedar** policy
+  authorization (`incomingAuth.authz`), plus its tool optimizer
+  (`find_tool`/`call_tool`), composite tools, and audit logging — features
+  agentgateway's MCP routes don't have.
+
+> **Combination guidance** — vMCP and agentgateway are **complementary, not
+> competing**. Use vMCP alone when all you need is pure MCP aggregation +
+> OAuth for a small team (fewer moving parts, K8s-native via the
+> `VirtualMCPServer` CRD). Put agentgateway in front of the ToolHive runtime
+> (Approach 2) when you also want the full AI gateway: API keys, Admin UI,
+> CEL authz + rate limits, LLM-gateway features (providers/fallbacks), and
+> deeper observability. A vMCP behind agentgateway only pays off if you want
+> its Cedar authz/optimizer — otherwise it's redundant. The full feature
+> comparison table is in the blog post's Approach 4 section.
 
 ### How to host any MCP server (packaging → choice)
 
@@ -620,7 +747,7 @@ The gateway exposes **two authenticated entry ports** for the same routes:
 | 18080 | API key (`x-api-key`, strict) — Context7-style per-user keys | `sk-alice-demo-key`, `sk-bob-demo-key`, `sk-mcp-gateway-demo-key` |
 | 8082  | `mcpAuthentication` (`mode: strict`) — OAuth 2.1 bearer JWT  | Keycloak-issued access token (per-user)                           |
 
-`config.toolhive.yaml` defines a second gateway named `sso` that carries
+`deployments/config.toolhive.yaml` defines a second gateway named `sso` that carries
 **no gateway-level auth at all**. Each of its four routes attaches the
 route-level `mcpAuthentication` policy (`mode: strict`) — the **MCP
 Authorization spec**-style resource-server protection — which replaces the
@@ -655,7 +782,7 @@ none` → PKCE-only public client). No Keycloak initial-access token needed.
   for logs/metrics/traces.
 
 Keycloak runs in the compose stack (`quay.io/keycloak/keycloak:26.0`, realm
-imported from `keycloak/realm-export.json` on first boot):
+imported from `deployments/keycloak/realm-export.json` on first boot):
 
 | Item             | Value                                                             |
 | ---------------- | ----------------------------------------------------------------- |
@@ -669,7 +796,7 @@ imported from `keycloak/realm-export.json` on first boot):
 > network) can always resolve it. **Required**: add `127.0.0.1 keycloak` to
 > your hosts file (admin) so the browser flow can reach the advertised
 > `http://keycloak:8080/...` endpoints (auth, token, JWKS) — Keycloak owns
-> host port 8080 precisely for this (`docker-compose.toolhive.yml`), while
+> host port 8080 precisely for this (`deployments/docker-compose.toolhive.yml`), while
 > the gateway's apiKey port lives on 18080.
 
 Mint a token and call the MCP gateway through the SSO port (no API key!):
@@ -754,7 +881,7 @@ matches:
 | `clientId`          | `mcp-gateway`                                                                                               | Because Keycloak DCR needs an initial-access token, the gateway **short-circuits** `client-registration` with a mock `201` (`token_endpoint_auth_method: none` → PKCE-only public client). Required for VS Code Copilot to bootstrap |
 | `resourceMetadata`  | `resource: http://localhost:8082/memory`, `scopesSupported: [read:all]`, `bearerMethodsSupported: [header]` | What the gateway advertises in protected-resource metadata (drives client scope requests, e.g. Copilot sends `scope=read:all`)                                                                                                       |
 
-**Keycloak side** (all in `keycloak/realm-export.json`):
+**Keycloak side** (all in `deployments/keycloak/realm-export.json`):
 
 - Realm `mcp-demo`; `attributes.frontendUrl = http://keycloak:8080` so every
   minted token carries the in-network issuer the gateway resolves.
@@ -891,7 +1018,7 @@ What happens when you add the server:
 Prereqs: **`127.0.0.1 keycloak` in your hosts file** (so the advertised
 `http://keycloak:8080/...` endpoints resolve from the host), and the Keycloak
 client's `redirectUris` include `http://127.0.0.1:33418` and
-`https://vscode.dev/redirect` (already set in `keycloak/realm-export.json`).
+`https://vscode.dev/redirect` (already set in `deployments/keycloak/realm-export.json`).
 
 Per-user security properties (unchanged from the JWT design):
 
@@ -926,7 +1053,7 @@ Per-user security properties (unchanged from the JWT design):
 ### LLM observability: Langfuse + Arize Phoenix
 
 On top of the Grafana stack, the collector fans traces out to **two LLM
-observability backends** (see `otel-collector.yaml`):
+observability backends** (see `deployments/otel-collector.yaml`):
 
 - **Langfuse** (http://localhost:3001) — self-hosted v3 (the smallest
   OTLP-capable version: web + worker + postgres + redis + clickhouse +
@@ -966,7 +1093,7 @@ Checklist:
   MCP routes (and would protect LLM/UI traffic if attached to this gateway).
 - **UI playground (native stdio variant)**: the Admin UI's Tool Playground
   connects to the **top-level `mcp:` section**, not to per-route
-  `backends[].mcp` targets. In `config.stdio.yaml` that section lives on
+  `backends[].mcp` targets. In `deployments/config.stdio.yaml` that section lives on
   the **`sso` gateway `:8082`** and serves a virtual MCP server (`/mcp` +
   `/sse`) federating the same four stdio targets behind Keycloak OAuth. To
   verify access to tools: open
@@ -1035,10 +1162,10 @@ per-user rate limits, backed by Keycloak — i.e. exactly what this sample's
 - **No gateway logs in Loki**: the gateway container uses the Docker **loki
   log driver** (installed by `scripts/start-toolhive.sh`); verify the plugin
   is present (`docker plugin ls`) and Loki is up
-  (`docker compose -f docker-compose.toolhive.yml logs -f loki`).
+  (`docker compose -f deployments/docker-compose.toolhive.yml logs -f loki`).
 - **No metrics in Prometheus**: confirm `http://localhost:15020/metrics`
   responds; Prometheus scrapes `gateway:15020` on the compose network.
-- **Config errors**: `docker compose -f docker-compose.toolhive.yml run --rm gateway agentgateway -f /config.yaml --validate-only`.
+- **Config errors**: `docker compose -f deployments/docker-compose.toolhive.yml run --rm gateway agentgateway -f /config.yaml --validate-only`.
 - **Native stdio variant — gateway not on PATH / MCP servers not found**:
   `start-stdio.sh` installs the `agentgateway` binary and ensures `npx` +
   `uvx`, but the gateway spawns them from **its own PATH**. If `npx`/
@@ -1052,12 +1179,12 @@ per-user rate limits, backed by Keycloak — i.e. exactly what this sample's
   (`./scripts/stop-mcpwrap.sh` / `stop-toolhive.sh`).
 - **Native stdio variant — sqlite path**: the config uses
   `sqlite:///tmp/agentgateway/request-log.db` (host-writable); on Windows
-  adjust `config.stdio.yaml` to a writable path.
+  adjust `deployments/config.stdio.yaml` to a writable path.
 - **Collector crash-loops with "bind: address already in use" on 8888**: on
   Docker Desktop the port forwarder can hold 8888 even though the host port
   is free. The collector's prometheus exporter therefore listens on
-  **8889** (see `otel-collector.yaml` + the `otel-collector` scrape target
-  in `prometheus.yml`).
+  **8889** (see `deployments/otel-collector.yaml` + the `otel-collector`
+  scrape target in `deployments/prometheus.yml`).
 - **Memory graph state**: the memory server persists its graph in a named
   volume owned by ToolHive. Reset the demo graph with
   `./scripts/stop-toolhive.sh`, then
@@ -1075,10 +1202,24 @@ per-user rate limits, backed by Keycloak — i.e. exactly what this sample's
 - **SSO port returns 401 `token uses the unknown key`**: the gateway caches
   Keycloak's JWKS; if Keycloak was recreated with a new signing key (e.g.
   its data volume was removed), force the gateway to refetch:
-  `docker compose -f docker-compose.mcpwrap.yml up -d --force-recreate gateway`.
+  `docker compose -f deployments/docker-compose.mcpwrap.yml up -d --force-recreate gateway`.
   The compose files keep Keycloak's signing keys in the persistent
   `keycloak-data` volume precisely so this can't happen on a normal
   `down`/`up` cycle.
+- **vMCP returns `401 invalid_token: OIDC discovery failed: ... no such
+host`**: the vMCP (a Go binary) resolves the issuer
+  `http://keycloak:8080/...` via the hosts file, and Go's resolver fails on
+  a **UTF-8 BOM** at the start of the hosts file — the first line
+  (`127.0.0.1 keycloak`) is silently skipped and DNS takes over. The BOM is
+  invisible in most editors; check with
+  `powershell -Command "[IO.File]::ReadAllBytes('C:\Windows\System32\drivers\etc\hosts')[0..2]"`
+  (expect `31 32 37`, i.e. `127`, not `EF BB BF`). Fix (elevated):
+  `powershell -Command "[IO.File]::WriteAllBytes('C:\Windows\System32\drivers\etc\hosts',[IO.File]::ReadAllBytes('C:\Windows\System32\drivers\etc\hosts')[3..1e6])"`.
+  `start-vmcp.sh` detects this and fails fast with the same command.
+- **vMCP never comes back after `stop-vmcp.sh`** (port 4483 still bound):
+  the vMCP is killed by pid (`logs/vmcp.pid`); if that pid is stale (e.g.
+  the nohup'd process outlived it), kill by port:
+  `Get-NetTCPConnection -LocalPort 4483 -State Listen | % { Stop-Process -Id $_.OwningProcess -Force }`.
 - **UI shows "legacy MCP backend" in Traffic → Routes**: cosmetic label,
   hardcoded in the admin UI (`ui/src/traffic.ts`) for any route whose
   backend is `mcp:` — i.e. the **routing-based** config mode. It is _not_ a
@@ -1102,7 +1243,7 @@ endpoints (`/memory`, `/fetch`, `/thinking`, `/mcp`) expose the same
 API-key + Keycloak OAuth protection; only the backend `mcp.host` targets
 point at the ToolHive proxies.
 
-### ToolHive Runtime (`docker-compose.toolhive.yml` + `config.toolhive.yaml`)
+### ToolHive Runtime (`deployments/docker-compose.toolhive.yml` + `deployments/config.toolhive.yaml`)
 
 Instead of writing our own bridge, we use [ToolHive](https://toolhive.dev/)
 (Stacklok, Apache-2.0) — a Docker-based MCP runtime whose CLI (`thv run`)
@@ -1278,11 +1419,11 @@ thv run docker.io/mcp/sequentialthinking --host 0.0.0.0 --proxy-port 19003 --tra
 Keycloak + observability — no build step, no docker.sock):
 
 ```powershell
-docker compose -f docker-compose.toolhive.yml up -d
+docker compose -f deployments/docker-compose.toolhive.yml up -d
 ```
 
-`config.toolhive.yaml` defines the routes/auth; the backend targets point at
-the ToolHive proxies:
+`deployments/config.toolhive.yaml` defines the routes/auth; the backend
+targets point at the ToolHive proxies:
 
 ```yaml
 backends:
@@ -1328,12 +1469,12 @@ above for the full decision — including when you need no bridge at all
 **Files:**
 
 ```
-config.stdio.yaml           # Approach 1 (native stdio): routes/auth, targets = `stdio: { cmd, args }` (host binary)
-config.mcpwrap.yaml         # Approach 3: same routes/auth, targets = mcpwrap proxies (host.docker.internal:19101-19103/mcp)
-config.toolhive.yaml        # Approach 2: same routes/auth, targets = ToolHive proxies (host.docker.internal:19001-19004/mcp)
-docker-compose.stdio.yml    # INFRA ONLY (Approach 1): keycloak + otel + prometheus + tempo + loki + grafana + langfuse + phoenix — NO gateway service
-docker-compose.toolhive.yml # FULL stack (Approach 2): stock gateway + keycloak + observability
-docker-compose.mcpwrap.yml  # FULL stack (Approach 3): same, gateway mounted on config.mcpwrap.yaml
+deployments/config.stdio.yaml           # Approach 1 (native stdio): routes/auth, targets = `stdio: { cmd, args }` (host binary)
+deployments/config.mcpwrap.yaml         # Approach 3: same routes/auth, targets = mcpwrap proxies (host.docker.internal:19101-19103/mcp)
+deployments/config.toolhive.yaml        # Approach 2: same routes/auth, targets = ToolHive proxies (host.docker.internal:19001-19004/mcp)
+deployments/docker-compose.stdio.yml    # INFRA ONLY (Approach 1): keycloak + otel + prometheus + tempo + loki + grafana + langfuse + phoenix — NO gateway service
+deployments/docker-compose.toolhive.yml # FULL stack (Approach 2): stock gateway + keycloak + observability
+deployments/docker-compose.mcpwrap.yml  # FULL stack (Approach 3): same, gateway mounted on deployments/config.mcpwrap.yaml
 scripts/start-stdio.sh      # Approach 1: install binary+packages -> loki driver -> compose infra -> detached host gateway
 scripts/stop-stdio.sh       # Approach 1: kill host gateway pid + compose down
 scripts/start-toolhive.sh   # Approach 2: thv workloads + loki driver + compose stack
@@ -1346,20 +1487,20 @@ mcpwrap/                    # the mcpwrap Go wrapper (README, source, mcpwrap.js
 ## Files
 
 ```
-config.stdio.yaml             # Approach 1 (native stdio): gateway definition (routes/auth, `stdio:` targets, host-binary)
-config.mcpwrap.yaml           # Approach 3: same gateway definition, mcpwrap proxy targets (:19101-19103)
-config.toolhive.yaml          # Approach 2: same gateway definition, ToolHive proxy targets :19001-19004
-docker-compose.stdio.yml      # Approach 1 infra only (keycloak + observability — NO gateway service, host binary instead)
-docker-compose.toolhive.yml   # Approach 2 single full stack: gateway (stock image) + keycloak + otel-collector + prometheus + tempo + loki + grafana + langfuse + phoenix
-docker-compose.mcpwrap.yml    # Approach 3 same stack: gateway container mounted on config.mcpwrap.yaml
-otel-collector.yaml           # OTLP receivers, tempo/loki/langfuse/phoenix exporters (no filelog leg — gateway logs go via the loki docker driver)
-clickhouse-keeper.xml         # embedded ClickHouse Keeper (Langfuse needs ReplicatedMergeTree)
-keycloak/                     # realm-export.json (realm mcp-demo, client mcp-gateway, users alice/bob/mcpuser)
-prometheus.yml                # scrape gateway:15020 + collector:8889
-tempo.yaml                    # Tempo local backend config
-loki-config.yaml              # Loki single-binary config
-grafana/provisioning/         # datasources (prometheus/tempo/loki) + dashboard provider
-grafana/dashboards/           # MCP gateway dashboard JSON
+deployments/config.stdio.yaml             # Approach 1 (native stdio): gateway definition (routes/auth, `stdio:` targets, host-binary)
+deployments/config.mcpwrap.yaml           # Approach 3: same gateway definition, mcpwrap proxy targets (:19101-19103)
+deployments/config.toolhive.yaml          # Approach 2: same gateway definition, ToolHive proxy targets :19001-19004
+deployments/docker-compose.stdio.yml      # Approach 1 infra only (keycloak + observability — NO gateway service, host binary instead)
+deployments/docker-compose.toolhive.yml   # Approach 2 single full stack: gateway (stock image) + keycloak + otel-collector + prometheus + tempo + loki + grafana + langfuse + phoenix
+deployments/docker-compose.mcpwrap.yml    # Approach 3 same stack: gateway container mounted on deployments/config.mcpwrap.yaml
+deployments/otel-collector.yaml           # OTLP receivers, tempo/loki/langfuse/phoenix exporters (no filelog leg — gateway logs go via the loki docker driver)
+deployments/clickhouse-keeper.xml         # embedded ClickHouse Keeper (Langfuse needs ReplicatedMergeTree)
+deployments/keycloak/                     # realm-export.json (realm mcp-demo, client mcp-gateway, users alice/bob/mcpuser)
+deployments/prometheus.yml                # scrape gateway:15020 + collector:8889
+deployments/tempo.yaml                    # Tempo local backend config
+deployments/loki-config.yaml              # Loki single-binary config
+deployments/grafana/provisioning/         # datasources (prometheus/tempo/loki) + dashboard provider
+deployments/grafana/dashboards/           # MCP gateway dashboard JSON
 scripts/                      # start/stop-stdio.sh (Approach 1), start/stop-toolhive.sh (Approach 2), start/stop-mcpwrap.sh (Approach 3), get-mcp-token.sh
 mcpwrap/                      # Go wrapper: source, README, mcpwrap.json fleet config (memory/fetch/sequentialthinking, ports 19101-19103)
 tests/McpGateway.Tests/       # xUnit v3 + Shouldly verification suite (dotnet test)

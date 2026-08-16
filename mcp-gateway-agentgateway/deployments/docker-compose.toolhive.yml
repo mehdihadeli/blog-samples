@@ -1,40 +1,88 @@
 # =============================================================================
-# docker-compose.stdio.yml — the agentgateway MCP gateway sample with the
-# NATIVE STDIO runtime (approach 1: agentgateway spawns the MCP servers
-# itself as `stdio` subprocesses).
+# docker-compose.toolhive.yml — single, self-contained stack for the
+# agentgateway MCP gateway sample (ToolHive runtime model).
 #
-# NOTE what this file does NOT contain: a gateway service. In this variant
-# the gateway runs as a HOST BINARY (`agentgateway -f config.yaml` — the
-# documented flow for `stdio` targets, see
-# https://agentgateway.dev/docs/standalone/latest/mcp/connect/stdio/).
-# There is no custom gateway image and no gateway container: the binary
-# spawns `mcp-server-memory` / `mcp-server-fetch` /
-# `npx @modelcontextprotocol/server-sequential-thinking` as subprocesses.
-#
-# This compose file runs ONLY the shared infrastructure the host gateway
-# talks to:
+# One compose file, two roles:
+#   gateway        : agentgateway (STOCK official image, no custom build) —
+#                    routes to the MCP servers over HTTP. The servers run on
+#                    the HOST, proxied by ToolHive (`thv`):
+#                      thv run docker.io/mcp/memory --host 0.0.0.0 --proxy-port 19001 \
+#                           --transport stdio --proxy-mode streamable-http \
+#                           --isolate-network=false
+#                    ... (see scripts/start-toolhive.sh for the full set —
+#                    memory :19001, fetch :19002, sequentialthinking :19003,
+#                    everything :19004)
+#                    The gateway is hardened: read-only rootfs, cap_drop ALL,
+#                    no-new-privileges, non-root (image default uid 65532) and
+#                    NO docker.sock / docker CLI anywhere in this file.
+#                    Gateway stdout streams to Loki via the Docker loki log
+#                    driver (no busybox tee / custom image needed).
 #   keycloak       : OIDC IdP (realm mcp-demo, client mcp-gateway, :8081)
 #   observability  : otel-collector (OTLP) + prometheus + tempo + loki +
 #                    grafana + langfuse (web/worker/postgres/redis/clickhouse/
 #                    minio) + phoenix
 #
-# The host gateway reaches them on PUBLISHED host ports:
-#   - OTLP  : http://localhost:4317  (config.stdio.yaml otlpEndpoint)
-#   - JWKS  : http://keycloak:8080/... (issuer/jwks in config.stdio.yaml —
-#             the `127.0.0.1 keycloak` hosts entry makes this resolve)
-#   - metrics scrape: prometheus scrapes `gateway:15020`; the `gateway`
-#             extra_host below maps that name to the HOST, where the binary
-#             listens (same trick as host.docker.internal, but keeps
-#             prometheus.yml unchanged).
-#
-# Start it with scripts/start-stdio.sh (installs the agentgateway binary +
-# the MCP server packages on the host, then brings this stack up).
-#
-# NOTE: this stack publishes well-known host ports (18080/8082/8080/3000/...)
-# — run it when no other gateway stack is using them (one variant at a time).
+# Start the MCP servers first (scripts/start-toolhive.sh), then:
+#   docker compose -f deployments/docker-compose.toolhive.yml up -d
 # =============================================================================
-name: docker-compose-stdio
+name: docker-compose-toolhive
 services:
+  gateway:
+    # STOCK official image — the sample no longer builds a custom gateway.
+    # It needs NO docker CLI and NO docker.sock: MCP servers are host-side
+    # ToolHive proxies (http://host.docker.internal:19001-19004/mcp).
+    image: cr.agentgateway.dev/agentgateway:v1.4.1
+    container_name: mcp-agentgateway-gateway-toolhive
+    restart: unless-stopped
+    # The gateway fetches Keycloak's JWKS at startup and exits if the fetch
+    # fails — wait for keycloak's healthcheck (management :9000, see below)
+    # so it never crash-loops while keycloak is still booting.
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    command: ["-f", "/config.yaml"]
+    # Hardening (same as the retired gateway.hardened.Dockerfile): read-only
+    # rootfs, no capabilities, no privilege escalation. The image default user
+    # is non-root uid 65532. There is no docker.sock mount — the gateway holds
+    # zero container-management privileges.
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    extra_hosts:
+      # Lets the gateway reach the host-side ToolHive proxies
+      # (http://host.docker.internal:19001/19002/19003/19004/mcp, see config).
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./config.toolhive.yaml:/config.yaml:ro
+      # Writable dir for the SQLite request-log DB
+      # (config: logging.database sqlite:///var/log/agentgateway/request-log.db).
+      - gateway-logs:/var/log/agentgateway
+    ports:
+      # Host 8080 is reserved for Keycloak (the OAuth browser flow must reach
+      # http://keycloak:8080/... from the host), so the gateway's apiKey port
+      # lives on 18080.
+      - "18080:8080" # MCP gateway (four routes, apiKey)
+      - "8082:8082" # MCP gateway SSO entry (same routes, Keycloak JWT)
+      - "15000:15000" # agentgateway Admin UI
+      - "15020:15020" # agentgateway Prometheus metrics
+      - "15021:15021" # agentgateway readiness probe
+    environment:
+      - ADMIN_ADDR=0.0.0.0:15000
+    # Gateway stdout -> Loki via the Docker loki log driver (installed by
+    # scripts/start-toolhive.sh: docker plugin install grafana/loki-docker-driver).
+    # The driver runs on the Docker daemon (host), so localhost:3100 reaches
+    # the published Loki port. No busybox tee, no custom image, no collector
+    # filelog leg — the driver pushes straight to Loki's /api/v1/push.
+    logging:
+      driver: loki
+      options:
+        loki-url: http://localhost:3100/loki/api/v1/push
+        loki-external-labels: "job=agentgateway,container_name={{.Name}}"
+        loki-retries: "5"
+
   keycloak:
     image: quay.io/keycloak/keycloak:26.0
     container_name: mcp-agentgateway-keycloak
@@ -82,7 +130,7 @@ services:
     volumes:
       - ./otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
     ports:
-      - "4317:4317" # OTLP gRPC (host gateway -> localhost:4317)
+      - "4317:4317" # OTLP gRPC (gateway container -> otel-collector:4317)
       - "4318:4318" # OTLP HTTP
     depends_on:
       - tempo
@@ -96,11 +144,6 @@ services:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
     ports:
       - "9090:9090"
-    extra_hosts:
-      # prometheus.yml scrapes `gateway:15020`; the host gateway binary
-      # listens on 15020, so map the name to the host (same as
-      # host.docker.internal). Keeps prometheus.yml identical across variants.
-      - "gateway:host-gateway"
 
   tempo:
     image: grafana/tempo:2.7.1
@@ -336,7 +379,11 @@ services:
       # OTLP gRPC ingest stays in-network: the collector exports to
       # phoenix:4317 and the host :4317 is already the collector's.
 
+# gateway-logs: writable dir for the gateway's SQLite request-log DB
+# (config.toolhive.yaml logging.database) under a read-only rootfs.
+# Langfuse volumes: Postgres, Redis, ClickHouse data + logs, MinIO buckets.
 volumes:
+  gateway-logs:
   keycloak-data:
   langfuse_postgres_data:
   langfuse_redis_data:

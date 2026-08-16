@@ -1,0 +1,55 @@
+{
+  "realm": "agentgateway",
+  "enabled": true,
+  "sslRequired": "none",
+  "defaultSignatureAlgorithm": "RS256",
+  "accessTokenLifespan": 3600,
+  "roles": {
+    "realm": [{ "name": "support-admin" }, { "name": "support-user" }]
+  },
+  "clients": [
+    {
+      "clientId": "support-chat",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "support-chat-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "redirectUris": ["*"],
+      "webOrigins": ["*"]
+    },
+    {
+      "clientId": "agentgateway-browser",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["*"],
+      "webOrigins": ["*"]
+    }
+  ],
+  "users": [
+    {
+      "username": "alice",
+      "enabled": true,
+      "email": "alice@example.com",
+      "firstName": "Alice",
+      "credentials": [
+        { "type": "password", "value": "alice-password", "temporary": false }
+      ],
+      "realmRoles": ["support-admin", "support-user"]
+    },
+    {
+      "username": "bob",
+      "enabled": true,
+      "email": "bob@example.com",
+      "firstName": "Bob",
+      "credentials": [
+        { "type": "password", "value": "bob-password", "temporary": false }
+      ],
+      "realmRoles": ["support-user"]
+    }
+  ]
+}

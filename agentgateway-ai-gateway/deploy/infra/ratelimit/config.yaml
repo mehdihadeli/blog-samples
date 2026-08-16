@@ -1,0 +1,19 @@
+# Envoy ratelimit server configuration (OPTIONAL - used only when the stack
+# is started with the `--ratelimit` flag / docker-compose.ratelimit.yaml).
+#
+# The gateway (agentgateway-config.remote-ratelimit.yaml) sends descriptors
+# with key: user under the domain `agentgateway`. The server matches the
+# value and applies the corresponding per-user rate limit. Unlisted users
+# are not limited.
+domain: agentgateway
+descriptors:
+  - key: user
+    value: alice
+    rate_limit:
+      unit: minute
+      requests_per_unit: 15
+  - key: user
+    value: bob
+    rate_limit:
+      unit: minute
+      requests_per_unit: 30

@@ -1,0 +1,48 @@
+# ---------------------------------------------------------------------------
+# docker-compose.ratelimit.yaml - OPTIONAL override that adds Envoy-based
+# per-user rate limiting to the stack.
+#
+# Usage (from the sample root):
+#   ./scripts/start-mcps.sh --ratelimit
+#   # equivalent: docker compose -f deploy/docker-compose.yaml \
+#   #                            -f deploy/docker-compose.ratelimit.yaml up -d --build
+#
+# What it adds / changes on top of docker-compose.yaml:
+#   - ratelimit-redis : Redis backing store for counters
+#   - ratelimit       : the Envoy ratelimit gRPC service (port 8081),
+#                       limits loaded from infra/ratelimit/config.yaml
+#   - agentgateway    : mounts agentgateway-config.remote-ratelimit.yaml
+#                       (localRateLimit -> remoteRateLimit) and waits for
+#                       the ratelimit service to start
+#
+# Without this file the stack runs with LOCAL (in-memory) rate limits and
+# no extra services.
+# ---------------------------------------------------------------------------
+services:
+  agentgateway:
+    # Merge rule for volumes is "by container target path", so this swaps
+    # the /config.yaml mount and keeps gateway-logs.
+    volumes:
+      - ./agentgateway-config.remote-ratelimit.yaml:/config.yaml:ro
+      - gateway-logs:/var/log/agentgateway
+    depends_on:
+      ratelimit:
+        condition: service_started
+
+  # Per-user rate limiting: Envoy ratelimit + Redis
+  ratelimit-redis:
+    image: redis:7-alpine
+
+  ratelimit:
+    image: envoyproxy/ratelimit:master
+    environment:
+      - USE_STATSD=false
+      - REDIS_SOCKET_TYPE=tcp
+      - REDIS_URL=redis://ratelimit-redis:6379
+      - RUNTIME_ROOT=/data
+      - RUNTIME_SUBDIRECTORY=ratelimit
+      - RUNTIME_WATCH_ROOT=false
+    volumes:
+      - ./infra/ratelimit/config.yaml:/data/ratelimit/config:ro
+    depends_on:
+      - ratelimit-redis

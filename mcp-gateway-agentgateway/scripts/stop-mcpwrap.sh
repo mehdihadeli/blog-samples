@@ -5,7 +5,7 @@
 #      (its signal handler stops all containers and clears state), then
 #      `mcpwrap down` as a belt-and-braces fallback, then remove any
 #      orphaned mcpwrap-* containers.
-#   2. docker compose -f docker-compose.mcpwrap.yml down — the gateway
+#   2. docker compose -f deployments/docker-compose.mcpwrap.yml down — the gateway
 #      (stock agentgateway) + Keycloak + observability stack.
 #
 # Usage:  ./scripts/stop-mcpwrap.sh
@@ -26,6 +26,6 @@ fi
 docker ps -aq --filter "name=mcpwrap-" 2>/dev/null | xargs -r docker rm -f >/dev/null 2>&1 || true
 
 echo "==> [2/2] Gateway + Keycloak + observability"
-docker compose -f docker-compose.mcpwrap.yml down
+docker compose -f deployments/docker-compose.mcpwrap.yml down
 echo "Stack stopped (gateway, keycloak, otel-collector, prometheus, tempo, loki, grafana, langfuse, phoenix)."
-echo "To also remove volumes (incl. the memory graph + gateway logs): docker compose -f docker-compose.mcpwrap.yml down -v"
+echo "To also remove volumes (incl. the memory graph + gateway logs): docker compose -f deployments/docker-compose.mcpwrap.yml down -v"

@@ -1,0 +1,353 @@
+# ---------------------------------------------------------------------------
+# AgentGateway AI Gateway - full local stack (ToolHive runtime for MCPs)
+#
+#   agentgateway  - the gateway itself (LLM 4000, MCP 3000, A2A 3001,
+#                   Admin UI 15000, metrics 15020)
+#   mcp-*         - 3 .NET MCP servers in containers (tickets/catalog/
+#                   customers) + 2 external MCPs (everything, time) run on
+#                   the HOST via ToolHive (thv) and reached through
+#                   host.docker.internal (see scripts/start-mcps.sh)
+#   support-agent - .NET A2A agent behind the gateway's A2A route
+#   keycloak      - OIDC identity provider for MCP authentication (PKCE)
+#   otel-collector- traces/logs to Tempo, Loki, Langfuse
+#   tempo/loki/prometheus/promtail/grafana - LGTM observability stack
+#   langfuse      - self-hosted LLM observability
+#
+# WHEN TO USE TOOLHIVE vs DIRECT HTTP (see README "ToolHive vs direct HTTP"):
+#   - ToolHive (host)  : third-party MCP servers that are stdio-only by
+#     default (everything, time). thv wraps them in a streamable HTTP proxy
+#     and keeps them outside the stack. Their lifecycle is NOT managed by
+#     compose, which is why scripts/start-mcps.sh (re)starts them.
+#   - Direct HTTP (compose): MCP servers that natively speak streamable HTTP
+#     - especially YOUR OWN services built from source (the three .NET MCPs
+#     below) - plus any service that needs compose-managed lifecycle,
+#     restart policy, or to be part of the same Docker network.
+#
+# Note: rate limiting is LOCAL by default (in-memory token buckets in the
+# gateway, see agentgateway-config.yaml). To opt into per-user Envoy rate
+# limiting you have two options:
+#   1) Override file:  docker compose -f docker-compose.yaml \
+#                          -f docker-compose.ratelimit.yaml up -d --build
+#      (scripts/start-mcps.sh --ratelimit does this for you)
+#   2) Inline (below): uncomment the `ratelimit-redis` + `ratelimit`
+#      services, add `ratelimit` to agentgateway.depends_on, and swap the
+#      /config.yaml mount to agentgateway-config.remote-ratelimit.yaml.
+#
+# Start:  ./scripts/start-mcps.sh     (ToolHive MCPs + this stack)
+# Stop:   ./scripts/stop-mcps.sh
+# Then:   run SupportChat from the host (see README.md)
+# ---------------------------------------------------------------------------
+name: agentgateway-ai-gateway
+
+services:
+  # -------------------------------------------------------------------------
+  # The gateway itself (hardened: read-only rootfs, no capabilities).
+  # The everything/time MCP targets point at host-side ToolHive proxies
+  # (host.docker.internal), the rest are in-network containers.
+  # -------------------------------------------------------------------------
+  agentgateway:
+    image: cr.agentgateway.dev/agentgateway:latest
+    container_name: agentgateway-ai-gateway
+    restart: unless-stopped
+    command: ["-f", "/config.yaml"]
+    # The gateway fetches Keycloak's JWKS at startup and exits when the
+    # fetch fails - wait for the healthcheck so it never crash-loops.
+    # OPTIONAL (Envoy rate limiting): add
+    #   ratelimit:
+    #     condition: service_started
+    # and uncomment the ratelimit services below.
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+      mcp-tickets:
+        condition: service_started
+      mcp-catalog:
+        condition: service_started
+      mcp-customers:
+        condition: service_started
+    # Hardening: read-only rootfs, no capabilities, no privilege escalation.
+    # The image default user is non-root uid 65532. There is NO docker.sock
+    # mount - the gateway holds zero container-management privileges.
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    extra_hosts:
+      # Lets the gateway reach the host-side ToolHive MCP proxies
+      # (http://host.docker.internal:19101/19102/mcp, see config).
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "4000:4000" # LLM gateway
+      - "3000:3000" # MCP gateway
+      - "3001:3001" # A2A gateway (route)
+      - "15000:15000" # Admin UI
+      - "15020:15020" # Prometheus metrics
+    volumes:
+      - ./agentgateway-config.yaml:/config.yaml:ro
+      # OPTIONAL (Envoy rate limiting): swap the mount above to
+      #   - ./agentgateway-config.remote-ratelimit.yaml:/config.yaml:ro
+      # and uncomment the ratelimit services below.
+      # Writable dir for the SQLite request-log DB under the read-only
+      # rootfs (config.logging.database, see agentgateway-config.yaml).
+      # scripts/start-mcps.sh chowns this volume to uid 65532.
+      - gateway-logs:/var/log/agentgateway
+    environment:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:?set your DeepSeek key in .env}
+
+  # -------------------------------------------------------------------------
+  # Identity: Keycloak
+  # -------------------------------------------------------------------------
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    container_name: agentgateway-ai-gateway-keycloak
+    restart: unless-stopped
+    command: ["start-dev", "--import-realm"]
+    environment:
+      - KEYCLOAK_ADMIN=admin
+      - KEYCLOAK_ADMIN_PASSWORD=admin
+      - KC_HEALTH_ENABLED=true
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./infra/keycloak/agentgateway-realm.json:/opt/keycloak/data/import/agentgateway-realm.json:ro
+      # Persistent data dir: keeps the realm + signing keys across
+      # `docker compose down`/`up`. Without it every recreate mints NEW
+      # signing keys, so the gateway's cached JWKS stops matching and MCP
+      # auth 401s with "token uses the unknown key".
+      # NOTE: the official image runs as uid 1000 - scripts/start-mcps.sh
+      # chowns this volume so keycloak can write.
+      - keycloak-data:/opt/keycloak/data
+    healthcheck:
+      test: [
+          "CMD-SHELL",
+          # Keycloak 26 serves /health/ready on the management interface
+          # (port 9000), not on the main HTTP port 8080.
+          "exec 3<>/dev/tcp/localhost/9000 && echo -e 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 && cat <&3 | grep -q '200 OK'",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  # -------------------------------------------------------------------------
+  # OPTIONAL - per-user rate limiting via Envoy ratelimit + Redis.
+  # Uncomment BOTH services below to enable. You must also:
+  #   1. swap agentgateway's /config.yaml mount to
+  #      ./agentgateway-config.remote-ratelimit.yaml
+  #   2. add `ratelimit: {condition: service_started}` to agentgateway's
+  #      depends_on
+  # Limits are defined in infra/ratelimit/config.yaml (per virtual key user
+  # / JWT subject). The override file docker-compose.ratelimit.yaml does the
+  # same thing without editing this file.
+  # -------------------------------------------------------------------------
+  # ratelimit-redis:
+  #   image: redis:7-alpine
+  #
+  # ratelimit:
+  #   image: envoyproxy/ratelimit:master
+  #   environment:
+  #     - USE_STATSD=false
+  #     - REDIS_SOCKET_TYPE=tcp
+  #     - REDIS_URL=redis://ratelimit-redis:6379
+  #     - RUNTIME_ROOT=/data
+  #     - RUNTIME_SUBDIRECTORY=ratelimit
+  #     - RUNTIME_WATCH_ROOT=false
+  #   volumes:
+  #     - ./infra/ratelimit/config.yaml:/data/ratelimit/config:ro
+  #   depends_on:
+  #     - ratelimit-redis
+
+  # -------------------------------------------------------------------------
+  # The 3 custom .NET MCP servers.
+  #
+  # DIRECT HTTP (not ToolHive): these are built from source in this repo and
+  # natively expose streamable HTTP at /mcp (McpServerToolAttribute + MapMcp).
+  # There is no stdio to proxy, so ToolHive adds nothing; compose gives them
+  # restart policy + the gateway's Docker network. The gateway targets them
+  # directly: http://mcp-tickets:8081/mcp (see agentgateway-config.yaml).
+  # -------------------------------------------------------------------------
+  mcp-tickets:
+    build:
+      context: ../src
+      dockerfile: Mcp.Tickets/Dockerfile
+    environment:
+      - ASPNETCORE_URLS=http://+:8081
+    depends_on: []
+
+  mcp-catalog:
+    build:
+      context: ../src
+      dockerfile: Mcp.Catalog/Dockerfile
+    environment:
+      - ASPNETCORE_URLS=http://+:8082
+    depends_on: []
+
+  mcp-customers:
+    build:
+      context: ../src
+      dockerfile: Mcp.Customers/Dockerfile
+    environment:
+      - ASPNETCORE_URLS=http://+:8083
+    depends_on: []
+
+  # mcp-everything and mcp-time are NOT in this stack: they run on the HOST
+  # via ToolHive (scripts/start-mcps.sh) and are proxied to the gateway at
+  # http://host.docker.internal:19101/mcp and http://host.docker.internal:19102/mcp.
+  #
+  # WHY TOOLHIVE AND NOT CONTAINERS HERE:
+  #   - Both reference servers are stdio-only by default. ToolHive wraps them
+  #     in a streamable HTTP proxy (--transport stdio --proxy-mode
+  #     streamable-http --host 0.0.0.0) on the host.
+  #   - `everything` has NO docker image (npx-only), so it cannot run as a
+  #     plain container - thv's npx:// scheme builds one on demand.
+  #   - Containerizing them in compose would require npx/pip hacks and they
+  #     would still need a proxy sidecar anyway.
+  #   - Trade-off: ToolHive workloads are NOT managed by compose - re-run
+  #     scripts/start-mcps.sh after a reboot to bring the proxies back.
+  #
+  # IF they ever ship HTTP-native images, move them here (direct HTTP) the
+  # same way as the .NET MCPs and drop the thv commands.
+
+  # -------------------------------------------------------------------------
+  # The .NET A2A agent proxied by the gateway's A2A route
+  # -------------------------------------------------------------------------
+  support-agent:
+    build:
+      context: ../src
+      dockerfile: SupportAgent/Dockerfile
+    environment:
+      - ASPNETCORE_URLS=http://+:9999
+      - GATEWAY_LLM_URL=http://agentgateway:4000/v1
+      - GATEWAY_API_KEY=sk-alice-abc123def456
+    depends_on:
+      - agentgateway
+
+  # -------------------------------------------------------------------------
+  # Observability: OpenTelemetry Collector -> Tempo (traces), Loki (logs),
+  # Langfuse (LLM traces). Prometheus scrapes the gateway directly.
+  # -------------------------------------------------------------------------
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    ports:
+      - "4317:4317"
+    environment:
+      - LANGFUSE_PUBLIC_KEY=pk-lf-00000000-0000-0000-0000-000000000001
+      - LANGFUSE_SECRET_KEY=sk-lf-00000000-0000-0000-0000-000000000001
+    volumes:
+      - ./infra/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    depends_on:
+      - tempo
+      - loki
+      - langfuse-web
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - agentgateway
+
+  tempo:
+    image: grafana/tempo:latest
+    command: ["-config.file=/etc/tempo/config.yaml"]
+    ports:
+      - "3200:3200"
+    volumes:
+      - ./infra/tempo.yaml:/etc/tempo/config.yaml:ro
+
+  loki:
+    image: grafana/loki:latest
+    command: ["-config.file=/etc/loki/config.yaml"]
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./infra/loki.yaml:/etc/loki/config.yaml:ro
+
+  promtail:
+    image: grafana/promtail:latest
+    command: ["-config.file=/etc/promtail/config.yaml"]
+    volumes:
+      - ./infra/promtail.yaml:/etc/promtail/config.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "13000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+
+  # -------------------------------------------------------------------------
+  # Self-hosted Langfuse (LLM observability). Traces reach it through the
+  # OTel Collector's otlphttp/langfuse exporter (OTLP ingestion).
+  # -------------------------------------------------------------------------
+  langfuse-db:
+    image: postgres:17
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=langfuse
+
+  langfuse-redis:
+    image: redis:7-alpine
+
+  langfuse-web:
+    image: langfuse/langfuse:latest
+    ports:
+      - "13001:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://postgres:postgres@langfuse-db:5432/langfuse
+      - REDIS_URL=redis://langfuse-redis:6379
+      - NEXTAUTH_URL=http://localhost:13001
+      - NEXTAUTH_SECRET=agentgateway-demo-nextauth-secret-123456
+      - SALT=agentgateway-demo-salt-1234567890
+      - ENCRYPTION_KEY=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+      - LANGFUSE_INIT_ORG_ID=agentgateway
+      - LANGFUSE_INIT_ORG_NAME=Agent Gateway
+      - LANGFUSE_INIT_PROJECT_ID=ai-gateway
+      - LANGFUSE_INIT_PROJECT_NAME=AI Gateway
+      - LANGFUSE_INIT_PROJECT_PUBLIC_KEY=pk-lf-00000000-0000-0000-0000-000000000001
+      - LANGFUSE_INIT_PROJECT_SECRET_KEY=sk-lf-00000000-0000-0000-0000-000000000001
+      - LANGFUSE_INIT_USER_EMAIL=admin@example.com
+      - LANGFUSE_INIT_USER_NAME=Admin
+      - LANGFUSE_INIT_USER_PASSWORD=admin-password
+    depends_on:
+      - langfuse-db
+      - langfuse-redis
+
+  langfuse-worker:
+    image: langfuse/langfuse:latest
+    command: ["npm", "run", "worker"]
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://postgres:postgres@langfuse-db:5432/langfuse
+      - REDIS_URL=redis://langfuse-redis:6379
+      - NEXTAUTH_SECRET=agentgateway-demo-nextauth-secret-123456
+      - SALT=agentgateway-demo-salt-1234567890
+      - ENCRYPTION_KEY=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+    depends_on:
+      - langfuse-db
+      - langfuse-redis
+
+# gateway-logs: writable dir for the gateway's SQLite request-log DB under
+# the read-only rootfs (scripts/start-mcps.sh chowns it to uid 65532).
+# keycloak-data: persistent realm + signing keys (uid 1000).
+volumes:
+  gateway-logs:
+  keycloak-data:

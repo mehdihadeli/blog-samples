@@ -9,7 +9,7 @@
 #      sequentialthinking :19103 (`mcpwrap up -f mcpwrap/mcpwrap.json`).
 #   2. Loki docker log driver plugin (idempotent) — the gateway container's
 #      stdout streams to Loki through it (logging.driver=loki in compose).
-#   3. docker compose -f docker-compose.mcpwrap.yml up -d — the gateway
+#   3. docker compose -f deployments/docker-compose.mcpwrap.yml up -d — the gateway
 #      (STOCK agentgateway image, no docker.sock) + Keycloak + observability
 #      (otel-collector, prometheus, tempo, loki, grafana, langfuse, phoenix).
 #
@@ -79,7 +79,7 @@ if [[ ! -x "$MCPWRAP_BIN" ]]; then
 fi
 
 # Loki docker log driver: the gateway container's stdout streams to Loki
-# through it (docker-compose.mcpwrap.yml logging.driver=loki). Idempotent.
+# through it (deployments/docker-compose.mcpwrap.yml logging.driver=loki). Idempotent.
 if ! docker plugin ls --format '{{.Name}}' | grep -q '^loki'; then
   echo "==> Installing Docker loki log driver plugin..."
   docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions
@@ -127,7 +127,7 @@ docker volume create "$KEYCLOAK_DATA_VOL" >/dev/null 2>&1 || true
 MSYS_NO_PATHCONV=1 docker run --rm -v "$GATEWAY_LOGS_VOL":/v alpine chown -R 65532:65532 /v
 MSYS_NO_PATHCONV=1 docker run --rm -v "$KEYCLOAK_DATA_VOL":/v alpine chown -R 1000:1000 /v
 
-docker compose -f docker-compose.mcpwrap.yml up -d
+docker compose -f deployments/docker-compose.mcpwrap.yml up -d
 
 echo ""
 echo "Gateway endpoints:"

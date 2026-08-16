@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.AppHost" Version="13.4.6" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Mcp.Tickets\Mcp.Tickets.csproj" IsAspireProjectResource="true" />
+    <ProjectReference Include="..\Mcp.Catalog\Mcp.Catalog.csproj" IsAspireProjectResource="true" />
+    <ProjectReference Include="..\Mcp.Customers\Mcp.Customers.csproj" IsAspireProjectResource="true" />
+    <ProjectReference Include="..\SupportChat\SupportChat.csproj" IsAspireProjectResource="true" />
+    <ProjectReference Include="..\SupportAgent\SupportAgent.csproj" IsAspireProjectResource="true" />
+  </ItemGroup>
+
+</Project>

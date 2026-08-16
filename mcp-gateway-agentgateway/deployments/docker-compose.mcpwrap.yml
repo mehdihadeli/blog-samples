@@ -20,7 +20,7 @@
 #                    minio) + phoenix
 #
 # Start the MCP servers first (scripts/start-mcpwrap.sh), then:
-#   docker compose -f docker-compose.mcpwrap.yml up -d
+#   docker compose -f deployments/docker-compose.mcpwrap.yml up -d
 #
 # NOTE: this stack publishes well-known host ports (18080/8082/8080/3000/...)
 # — run it when no other gateway stack is using them.

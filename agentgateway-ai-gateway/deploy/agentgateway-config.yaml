@@ -1,0 +1,244 @@
+# ---------------------------------------------------------------------------
+# agentgateway standalone configuration for the AI gateway sample.
+#
+# This file mixes simplified sections (llm, mcp) with routing sections
+# (gateways, routes) which the docs allow in the same file:
+#   - `llm`  attaches to the implied `default` gateway on port 4000
+#   - `mcp`  attaches to the implied `default` gateway on port 3000
+#   - the explicit `a2a` gateway serves the A2A route on port 3001
+#   - the Admin UI runs on port 15000 (config.adminAddr)
+#
+# See https://agentgateway.dev/docs/standalone/main/configuration/
+# ---------------------------------------------------------------------------
+
+config:
+  # Expose the Admin UI on all interfaces inside Docker (default is localhost).
+  adminAddr: 0.0.0.0:15000
+
+  # Send structured JSON logs so Loki can parse them.
+  logging:
+    format: json
+    # SQLite request log. /var/log/agentgateway is a writable named volume
+    # under the read-only rootfs (see docker-compose.yaml); scripts/
+    # start-mcps.sh chowns it to the gateway uid 65532.
+    database: sqlite:///var/log/agentgateway/request-log.db
+
+  # Attach the virtual API key user as a metric label.
+  metrics:
+    fields:
+      add:
+        user_id: apiKey.user
+
+  # Export traces to the OpenTelemetry Collector (OTLP gRPC).
+  tracing:
+    otlpEndpoint: http://otel-collector:4317
+    randomSampling: true
+
+# ---------------------------------------------------------------------------
+# LLM GATEWAY (port 4000)
+#
+# Two DeepSeek models plus a virtual model that load-balances between them.
+# Virtual API keys (sk-alice-*, sk-bob-*) identify the caller so metrics,
+# rate limits and audit logs can attribute traffic to a real user.
+# ---------------------------------------------------------------------------
+llm:
+  policies:
+    # Virtual API keys. The `metadata.user` value is exposed to CEL as
+    # `apiKey.user` and used by metrics, logging and rate limiting.
+    apiKey:
+      mode: strict
+      keys:
+        - key: sk-alice-abc123def456
+          metadata:
+            user: alice
+        - key: sk-bob-xyz789uvw012
+          metadata:
+            user: bob
+
+    # Prompt-injection and PII guardrails. Request rules run on buffered
+    # traffic before the upstream call, response rules run on the model
+    # output. `streaming: Enabled` keeps SSE streaming working.
+    guardrails:
+      streaming: Enabled
+      request:
+        - regex:
+            action: reject
+            rules:
+              # Classic jailbreak patterns
+              - pattern: (?i)(ignore|disregard) (all )?(previous|prior|above) (instructions|prompts|rules|messages)
+              - pattern: (?i)(reveal|show) (your|the) (system prompt|system instructions|prompt)
+              - pattern: (?i)(you are now|act as if) .*(no restrictions|unfiltered|uncensored)
+      response:
+        - regex:
+            action: reject
+            rules:
+              # Builtin PII detectors
+              - builtin: email
+              - builtin: ssn
+              - builtin: creditCard
+
+    # Local rate limiting (in-memory token bucket, no external server).
+    # Counters live in the gateway process, so limits apply per instance and
+    # reset on restart - fine for a single-node demo, not for exact global
+    # counts. Two buckets: 60 requests/second and 50k tokens/hour.
+    # For exact per-user limits shared across replicas, use remoteRateLimit
+    # with an Envoy-compatible ratelimit service instead (see
+    # https://agentgateway.dev/docs/standalone/main/configuration/resiliency/rate-limits/).
+    localRateLimit:
+      - maxTokens: 60
+        # Every second, refill 1 token (60 req/s sustained)
+        tokensPerFill: 1
+        fillInterval: 1s
+        type: requests
+      - maxTokens: 50000
+        # Every hour, refill 50000 tokens
+        tokensPerFill: 50000
+        fillInterval: 1h
+        type: tokens
+
+  models:
+    - name: deepseek-chat
+      visibility: public
+      provider: deepseek
+      params:
+        apiKey: "$DEEPSEEK_API_KEY"
+        model: deepseek-chat
+    - name: deepseek-reasoner
+      visibility: public
+      provider: deepseek
+      params:
+        apiKey: "$DEEPSEEK_API_KEY"
+        model: deepseek-reasoner
+
+  # A virtual model that spreads load between the two DeepSeek models.
+  # Clients request "deepseek-smart" and the gateway picks a target.
+  virtualModels:
+    - name: deepseek-smart
+      routing:
+        weighted:
+          targets:
+            - model: deepseek-chat
+              weight: 70
+            - model: deepseek-reasoner
+              weight: 30
+
+# ---------------------------------------------------------------------------
+# MCP GATEWAY (port 3000) - single federated endpoint: http://localhost:3000/mcp
+#
+# One `/mcp` endpoint exposes ALL tools from every target below. A client
+# connects once to /mcp and sees a single `tools/list` whose tools are
+# federated from all five servers, namespaced as `<target>_<tool>`:
+#   tickets_tickets_list, catalog_catalog_search, customers_customers_get,
+#   everything_echo, time_get_current_time, ...
+#
+# Multiplexes five MCP servers behind one endpoint. Every tool gets the
+# `<target>_<tool>` prefix (e.g. `tickets_tickets_list`). Keycloak JWTs are
+# required and CEL rules authorize each tool call.
+#
+# tickets/catalog/customers run as containers in the compose stack;
+# everything/time run on the HOST via ToolHive (scripts/start-mcps.sh) and
+# are reached through host.docker.internal (extra_hosts in compose).
+# ---------------------------------------------------------------------------
+mcp:
+  policies:
+    # Needed for the MCP Tool Playground in the Admin UI.
+    cors:
+      allowOrigins: ["*"]
+      allowHeaders: [content-type, cache-control]
+
+    # Validate Keycloak access tokens (OAuth2/OIDC, PKCE for browser flows).
+    mcpAuthentication:
+      mode: strict
+      issuer: http://keycloak:8080/realms/agentgateway
+      audiences:
+        - agentgateway
+      jwks:
+        url: http://keycloak:8080/realms/agentgateway/protocol/openid-connect/certs
+      resourceMetadata:
+        resource: agentgateway
+        scopesSupported:
+          - read:all
+        bearerMethodsSupported:
+          - header
+
+    # Tool-level authorization. Rules are OR-ed. Only users holding the
+    # Keycloak role `support-admin` may touch the customers tools.
+    mcpAuthorization:
+      rules:
+        - 'mcp.tool.target == "tickets"'
+        - 'mcp.tool.target == "catalog"'
+        - 'mcp.tool.target == "time"'
+        - 'mcp.tool.target == "everything"'
+        - 'mcp.tool.target == "customers" && "support-admin" in jwt.realm_access.roles'
+
+    # Local rate limiting for MCP traffic (in-memory token bucket, gateway
+    # wide - not per user). 100 requests/minute across all tools.
+    localRateLimit:
+      - maxTokens: 100
+        # Every minute, refill 100 tokens
+        tokensPerFill: 100
+        fillInterval: 1m
+        type: requests
+
+  targets:
+    - name: tickets
+      mcp:
+        host: http://mcp-tickets:8081/mcp
+    - name: catalog
+      mcp:
+        host: http://mcp-catalog:8082/mcp
+    - name: customers
+      mcp:
+        host: http://mcp-customers:8083/mcp
+    # Host-side ToolHive proxies (scripts/start-mcps.sh):
+    #   thv run npx://@modelcontextprotocol/server-everything@latest \
+    #     --proxy-port 19101 --transport stdio --proxy-mode streamable-http
+    #   thv run docker.io/mcp/time \
+    #     --proxy-port 19102 --transport stdio --proxy-mode streamable-http
+    - name: everything
+      mcp:
+        host: http://host.docker.internal:19101/mcp
+    - name: time
+      mcp:
+        host: http://host.docker.internal:19102/mcp
+
+# ---------------------------------------------------------------------------
+# A2A GATEWAY (port 3001)
+#
+# Proxies the Agent-to-Agent (A2A) protocol to the .NET SupportAgent and
+# rewrites its agent card so clients always talk to the gateway URL.
+# ---------------------------------------------------------------------------
+gateways:
+  a2a:
+    port: 3001
+
+routes:
+  - name: a2a-support-agent
+    gateways: [a2a]
+    policies:
+      a2a: {}
+      cors:
+        allowOrigins: ["*"]
+        allowHeaders: [content-type, cache-control]
+    backends:
+      - host: support-agent:9999
+
+# ---------------------------------------------------------------------------
+# Admin UI security (optional).
+#
+# By default the Admin UI binds to 0.0.0.0:15000 without authentication.
+# To protect it, attach it to a gateway and add an OIDC policy plus the
+# OIDC_COOKIE_SECRET environment variable:
+#
+#   ui:
+#     policies:
+#       oidc:
+#         issuer: http://localhost:8080/realms/agentgateway
+#         clientId: agentgateway-browser
+#         clientSecret: <client-secret>
+#         redirectURI: http://localhost:3000/oauth/callback
+#         scopes: [profile, email]
+#       authorization:
+#         rules:
+#           - allow: jwt.email.endsWith("@example.com")
+# ---------------------------------------------------------------------------

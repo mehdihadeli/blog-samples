@@ -1,0 +1,8 @@
+<Solution>
+  <Project Path="src/AppHost/AppHost.csproj" />
+  <Project Path="src/Mcp.Tickets/Mcp.Tickets.csproj" />
+  <Project Path="src/Mcp.Catalog/Mcp.Catalog.csproj" />
+  <Project Path="src/Mcp.Customers/Mcp.Customers.csproj" />
+  <Project Path="src/SupportChat/SupportChat.csproj" />
+  <Project Path="src/SupportAgent/SupportAgent.csproj" />
+</Solution>

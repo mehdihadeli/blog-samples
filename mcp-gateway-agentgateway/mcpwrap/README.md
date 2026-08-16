@@ -89,13 +89,13 @@ The sample `../mcp-gateway-agentgateway` treats `mcpwrap` as its runtime —
 the gateway, Keycloak, and observability stack route to `mcpwrap` proxies on
 the host:
 
-| file                            | role                                                                 |
-| ------------------------------- | -------------------------------------------------------------------- |
-| `../mcpwrap.json` (this dir)    | fleet config: memory :19101, fetch :19102, sequentialthinking :19103 |
-| `../config.mcpwrap.yaml`        | agentgateway config, targets `host.docker.internal:19101-19103/mcp`  |
-| `../docker-compose.mcpwrap.yml` | full stack (gateway mounted on `config.mcpwrap.yaml`)                |
-| `../scripts/start-mcpwrap.sh`   | build wrapper → start daemon detached → wait `/healthz` → compose up |
-| `../scripts/stop-mcpwrap.sh`    | SIGTERM daemon → `mcpwrap down` → compose down                       |
+| file                                        | role                                                                 |
+| ------------------------------------------- | -------------------------------------------------------------------- |
+| `../mcpwrap.json` (this dir)                | fleet config: memory :19101, fetch :19102, sequentialthinking :19103 |
+| `../deployments/config.mcpwrap.yaml`        | agentgateway config, targets `host.docker.internal:19101-19103/mcp`  |
+| `../deployments/docker-compose.mcpwrap.yml` | full stack (gateway mounted on `../deployments/config.mcpwrap.yaml`) |
+| `../scripts/start-mcpwrap.sh`               | build wrapper → start daemon detached → wait `/healthz` → compose up |
+| `../scripts/stop-mcpwrap.sh`                | SIGTERM daemon → `mcpwrap down` → compose down                       |
 
 ```bash
 ./scripts/start-mcpwrap.sh   # from samples/mcp-gateway-agentgateway/

@@ -5,7 +5,7 @@
 #   logs    -> Loki (OTLP)
 #
 # Gateway stdout logs do NOT pass through here anymore: the gateway container
-# uses the Docker loki log driver (see docker-compose.toolhive.yml) which
+# uses the Docker loki log driver (see deployments/docker-compose.toolhive.yml) which
 # pushes straight to Loki /api/v1/push — no busybox tee, no filelog leg.
 receivers:
   otlp:

@@ -18,10 +18,11 @@
 #   2. Ensure the MCP server runners on the host (npx via Node, uvx via uv).
 #   3. Loki docker log driver plugin (idempotent) — infra containers log to
 #      Loki; the HOST gateway binary logs to logs/agentgateway-stdio.log.
-#   4. Keycloak + observability compose stack (docker-compose.stdio.yml —
+#   4. Keycloak + observability compose stack (deployments/docker-compose.stdio.yml —
 #      NO gateway service in this variant).
-#   5. Start the gateway binary DETACHED on the host with config.stdio.yaml
-#      (nohup, pid in logs/agentgateway-stdio.pid) and wait for :18080.
+#   5. Start the gateway binary DETACHED on the host with
+#      deployments/config.stdio.yaml (nohup, pid in logs/agentgateway-stdio.pid)
+#      and wait for :18080.
 #
 # Usage:
 #   ./scripts/start-stdio.sh             # ensure runners + start everything
@@ -82,7 +83,7 @@ fi
 "$GATEWAY_BIN" --version
 
 echo "==> [3/6] MCP server runners on the host (npx + uvx)"
-# The `stdio` targets in config.stdio.yaml spawn these commands on the host:
+# The `stdio` targets in deployments/config.stdio.yaml spawn these commands on the host:
 #   npx -y @modelcontextprotocol/server-memory
 #   npx -y @modelcontextprotocol/server-sequential-thinking
 #   uvx --with "mcp<2" mcp-server-fetch
@@ -110,7 +111,7 @@ KEYCLOAK_DATA_VOL="docker-compose-stdio_keycloak-data"
 docker volume create "$KEYCLOAK_DATA_VOL" >/dev/null 2>&1 || true
 MSYS_NO_PATHCONV=1 docker run --rm -v "$KEYCLOAK_DATA_VOL":/v alpine chown -R 1000:1000 /v
 
-docker compose -f docker-compose.stdio.yml up -d
+docker compose -f deployments/docker-compose.stdio.yml up -d
 
 echo "==> [5/6] Wait for Keycloak (the gateway fetches its JWKS at startup)"
 for i in $(seq 1 60); do
@@ -143,7 +144,7 @@ case "$(uname -s)" in
     ;;
   *) mkdir -p /tmp/agentgateway ;;
 esac
-nohup "$GATEWAY_BIN" -f config.stdio.yaml >"$GATEWAY_LOG" 2>&1 &
+nohup "$GATEWAY_BIN" -f deployments/config.stdio.yaml >"$GATEWAY_LOG" 2>&1 &
 echo $! > "$GATEWAY_PID"
 echo "  agentgateway pid $(cat "$GATEWAY_PID") — log: $GATEWAY_LOG"
 

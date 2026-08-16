@@ -1,0 +1,67 @@
+# =============================================================================
+# docker-compose.vmcp.yml — the ToolHive vMCP sample variant (approach 4 in
+# the article).
+#
+# This variant needs NO gateway container at all: the MCP workloads run on
+# the HOST via ToolHive (thv run, ports 19011-19014) and the aggregation +
+# OAuth layer is ToolHive's own Virtual MCP Server (vMCP, `thv vmcp serve`,
+# http://127.0.0.1:4483/mcp). The vMCP CLI reads deployments/vmcp.yaml and
+# validates the Keycloak JWTs itself.
+#
+# So this compose file runs ONLY the shared identity infrastructure:
+#   keycloak  : OIDC IdP (realm mcp-demo, client mcp-gateway, :8081)
+#
+# No otel-collector/prometheus/tempo/loki/grafana — vMCP's telemetry is
+# configured in the CLI flags, not via these containers (kept minimal on
+# purpose; the toolhive variant already shows the full observability stack).
+#
+# Start it with scripts/start-vmcp.sh (starts the thv workloads + vMCP on
+# the host first, then brings this stack up) and stop with
+# scripts/stop-vmcp.sh.
+#
+# NOTE: this stack publishes the well-known host ports 8080/8081 — run it
+# when no other gateway stack is using them (one variant at a time).
+# =============================================================================
+name: docker-compose-vmcp
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: mcp-agentgateway-keycloak
+    restart: unless-stopped
+    command: ["start-dev", "--import-realm"]
+    environment:
+      - KC_BOOTSTRAP_ADMIN_USERNAME=admin
+      - KC_BOOTSTRAP_ADMIN_PASSWORD=admin
+      - KC_HEALTH_ENABLED=true
+    ports:
+      # Host 8080 = Keycloak so the browser flow (VS Code Copilot OAuth
+      # popup, and the `127.0.0.1 keycloak` hosts entry) reaches Keycloak.
+      - "8080:8080" # Keycloak UI/issuer (browser flow: http://keycloak:8080)
+      - "8081:8080" # Keycloak console / tests (alternate host port)
+    volumes:
+      # Realm import (first boot): realm mcp-demo, client mcp-gateway,
+      # user mcpuser/mcpuser123. frontendUrl attr pins the JWT issuer to
+      # http://keycloak:8080/realms/mcp-demo (in-network name, same for
+      # browser via the hosts entry) — vmcp.yaml requires an exact `iss` match.
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+      # Persistent H2 data dir: keeps the realm + signing keys across
+      # `docker compose down`/`up` (keycloak recreates). Without it every
+      # recreate mints NEW signing keys, so the vMCP's cached JWKS stops
+      # matching and requests 401 with "token uses the unknown key".
+      # NOTE: the official image runs as uid 1000 — scripts/start-vmcp.sh
+      # chowns this volume so keycloak can write.
+      - keycloak-data:/opt/keycloak/data
+    healthcheck:
+      test: [
+          "CMD-SHELL",
+          # Keycloak 26 serves /health/ready on the management interface
+          # (port 9000), not on the main HTTP port 8080.
+          "exec 3<>/dev/tcp/localhost/9000 && echo -e 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 && cat <&3 | grep -q '200 OK'",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+volumes:
+  keycloak-data:

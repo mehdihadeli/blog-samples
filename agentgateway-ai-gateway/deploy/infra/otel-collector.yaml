@@ -1,0 +1,36 @@
+# OpenTelemetry Collector: receives OTLP from agentgateway (port 4317) and
+# fans out traces to Tempo + Langfuse, logs to Loki.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  batch: {}
+
+exporters:
+  debug:
+    verbosity: basic
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+  otlphttp/langfuse:
+    # Langfuse OTLP ingestion endpoint (public API, HTTP/protobuf)
+    endpoint: http://langfuse-web:3000/api/public/otel
+    headers:
+      Authorization: "Bearer ${env:LANGFUSE_PUBLIC_KEY}:${env:LANGFUSE_SECRET_KEY}"
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/tempo, otlphttp/langfuse, debug]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/loki, debug]

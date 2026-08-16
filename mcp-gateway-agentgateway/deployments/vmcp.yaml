@@ -1,0 +1,112 @@
+# =============================================================================
+# vmcp.yaml — ToolHive Virtual MCP Server (vMCP) configuration for the
+# "ToolHive's own gateway" sample variant (approach 4 in the article).
+#
+# A vMCP aggregates the MCP servers of a ToolHive group into ONE unified
+# endpoint (`http://127.0.0.1:4483/mcp`), exactly like agentgateway's
+# multiplexed `/mcp` route — but implemented by ToolHive itself instead of
+# by the agentgateway gateway.
+#
+# What this config sets up:
+#   - groupRef      : the ToolHive group holding the 4 backend workloads
+#                     (mcp-memory/mcp-fetch/mcp-sequentialthinking/
+#                     mcp-everything, started by scripts/start-vmcp.sh on
+#                     ports 19011-19014).
+#   - backends      : STATIC backend list. With static backends configured,
+#                     vMCP uses exactly these and does NOT re-discover from
+#                     the group at runtime (source: pkg/vmcp/aggregator/
+#                     discoverer.go — "using pre-configured static backends").
+#   - incomingAuth  : type: oidc — every client request must carry a JWT
+#                     issued by Keycloak (realm mcp-demo, client
+#                     mcp-gateway). This is vMCP's equivalent of agentgateway
+#                     `mcpAuthentication` (OAuth 2.1 / MCP authorization spec
+#                     resource server, RFC 9728 protected-resource metadata).
+#   - aggregation   : conflictResolution prefix + prefixFormat "{workload}_"
+#                     -> tools are namespaced, e.g. mcp-memory_create_entities
+#                     (same strategy agentgateway's mcp.muxToolSchemas uses).
+#
+# Regenerate the starter (then re-apply the oidc block below):
+#   thv vmcp init --group mcp-vmcp --output vmcp.yaml
+#
+# Validate / run:
+#   thv vmcp validate --config vmcp.yaml
+#   thv vmcp serve --config vmcp.yaml --host 0.0.0.0 --port 4483
+#
+# SECURITY NOTE (API keys): unlike agentgateway (:18080 mcpApiKey), the vMCP
+# CLI accepts NO incoming API keys — oidc is the only non-anonymous option.
+# Put a gateway (or API gateway) in front if you need key-based auth; see the
+# "Approach 4" section of the article for the passthroughHeaders /
+# headerInjection outgoing-auth snippets that vMCP offers instead.
+# =============================================================================
+
+# name: unique identifier for this vMCP server instance.
+name: mcp-vmcp
+
+# groupRef: the ToolHive group whose workloads are aggregated (used for
+# operational visibility in the status endpoint and logging).
+groupRef: mcp-vmcp
+
+# incomingAuth: controls how clients authenticate to this vMCP server.
+# type: oidc validates JWT bearer tokens issued by the configured issuer.
+# Keycloak realm mcp-demo, public PKCE client mcp-gateway — the SAME client
+# the agentgateway SSO port uses, so one minted token works for both.
+incomingAuth:
+  type: oidc
+  oidc:
+    # Issuer MUST match the JWT `iss` claim exactly. realm-export.json pins
+    # frontendUrl to http://keycloak:8080, so tokens carry
+    # iss=http://keycloak:8080/realms/mcp-demo (the `127.0.0.1 keycloak`
+    # hosts entry makes this resolve from the host where vMCP runs).
+    issuer: http://keycloak:8080/realms/mcp-demo
+    # ClientID of the public PKCE client (mcp-gateway). Optional — JWT
+    # validation works without it — but kept for parity with agentgateway.
+    clientId: mcp-gateway
+    # Audience: tokens must carry aud=mcp-gateway (Keycloak default audience
+    # = the clientId that minted the token via the password grant).
+    audience: mcp-gateway
+    # Resource (RFC 8707 / RFC 9728): the protected resource this server
+    # guards. Without it the CLI serves NO protected-resource metadata
+    # (GET /.well-known/oauth-protected-resource -> 404; source:
+    # pkg/auth/token.go NewAuthInfoHandler "if resourceURL is not set,
+    # return 404"). It is also what the RFC 9728 `resource` field and the
+    # WWW-Authenticate resource_metadata URL advertise to OAuth clients.
+    resource: http://127.0.0.1:4483/mcp
+    # Dev-only switches (NEVER in production): Keycloak here speaks plain
+    # HTTP and lives at a private IP (127.0.0.1 via the hosts entry), which
+    # the OIDC middleware would otherwise reject.
+    insecureAllowHttp: true
+    jwksAllowPrivateIp: true
+
+# outgoingAuth: controls how this vMCP server authenticates to backends.
+# source: inline means auth config is fully specified here.
+outgoingAuth:
+  source: inline
+  # The 4 backend workloads are plain localhost proxies with no auth of
+  # their own, so the default strategy is unauthenticated.
+  default:
+    type: unauthenticated
+
+# aggregation: controls how tools from multiple backends are combined.
+# conflictResolution: prefix prepends the backend name to each tool name —
+# same namespacing agentgateway applies on its multiplexed /mcp route.
+aggregation:
+  conflictResolution: prefix
+  conflictResolutionConfig:
+    prefixFormat: "{workload}_"
+
+# backends: one entry per running workload in the group. STATIC mode — vMCP
+# uses exactly these URLs (generated by `thv vmcp init` with the group
+# running; ports must match scripts/start-vmcp.sh).
+backends:
+  - name: mcp-memory
+    url: http://127.0.0.1:19011/mcp
+    transport: streamable-http
+  - name: mcp-fetch
+    url: http://127.0.0.1:19012/mcp
+    transport: streamable-http
+  - name: mcp-sequentialthinking
+    url: http://127.0.0.1:19013/mcp
+    transport: streamable-http
+  - name: mcp-everything
+    url: http://127.0.0.1:19014/mcp
+    transport: streamable-http
