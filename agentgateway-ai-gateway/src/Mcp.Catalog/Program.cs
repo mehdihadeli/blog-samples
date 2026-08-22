@@ -3,6 +3,7 @@ using ModelContextProtocol.AspNetCore;
 using ModelContextProtocol.Server;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.AddServiceDefaults();
 
 builder
     .Services.AddMcpServer()
@@ -13,6 +14,7 @@ builder
     .WithTools<CatalogTools>();
 
 var app = builder.Build();
+app.MapDefaultEndpoints();
 
 app.MapMcp("/mcp");
 

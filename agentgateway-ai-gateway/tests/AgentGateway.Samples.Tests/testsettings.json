@@ -1,0 +1,31 @@
+{
+  "Gateway": {
+    "McpUrl": "http://localhost:3000/mcp",
+    "LlmUrl": "http://localhost:4000/v1",
+    "A2AUrl": "http://localhost:3001",
+    "AdminUrl": "http://localhost:15000",
+    "MetricsUrl": "http://localhost:15020/metrics"
+  },
+  "Keycloak": {
+    "TokenUrl": "http://localhost:8080/realms/agentgateway/protocol/openid-connect/token",
+    "ClientId": "support-chat",
+    "ClientSecret": "support-chat-secret",
+    "BrowserClientId": "agentgateway-browser"
+  },
+  "Users": {
+    "Alice": {
+      "Username": "alice",
+      "Password": "alice-password",
+      "Roles": ["support-admin", "support-user"]
+    },
+    "Bob": {
+      "Username": "bob",
+      "Password": "bob-password",
+      "Roles": ["support-user"]
+    }
+  },
+  "ApiKeys": {
+    "Alice": "sk-alice-abc123def456",
+    "Bob": "sk-bob-xyz789uvw012"
+  }
+}

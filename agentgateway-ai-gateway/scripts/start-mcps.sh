@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# start-mcps.sh - start the external MCP servers (everything, time) with
+# start-mcps.sh - start the external MCP server (everything) with
 # ToolHive on the HOST, then bring up the full agentgateway compose stack.
 #
 # Why ToolHive instead of containers in the compose file?
-#   - The reference MCP servers (everything, time) are stdio-only by
+#   - The reference MCP server (everything) is stdio-only by
 #     default; `thv run` wraps each one in a Streamable HTTP proxy
 #     (--transport stdio --proxy-mode streamable-http) and keeps the
 #     workload state on the host, outside the compose stack.
@@ -15,7 +15,7 @@
 #   - Networking isolation: thv defaults to --isolate-network=true, which
 #     spawns THREE containers per workload (workload + egress Squid proxy +
 #     dnsmasq DNS). Only enable it when the MCP actually needs outbound
-#     internet (e.g. the fetch server). everything/time need no outbound
+#     internet (e.g. the fetch server). everything needs no outbound
 #     traffic, so we pass --isolate-network=false and keep ONE container per
 #     workload.
 #
@@ -53,7 +53,7 @@ if [[ "$RATELIMIT" -eq 1 ]]; then
   COMPOSE_FILES="$COMPOSE_FILES -f deploy/docker-compose.ratelimit.yaml"
 fi
 
-WORKLOADS=(mcp-everything mcp-time)
+WORKLOADS=(mcp-everything)
 
 clean_state() {
   # thv rm fails silently when the container no longer exists; deleting the
@@ -64,17 +64,13 @@ clean_state() {
   done
   rm -f \
     "$HOME/.local/state/toolhive/runconfigs/mcp-everything.json" \
-    "$HOME/.local/state/toolhive/runconfigs/mcp-time.json" \
-    "$HOME/.local/state/toolhive/statuses/mcp-everything.json" \
-    "$HOME/.local/state/toolhive/statuses/mcp-time.json"
+    "$HOME/.local/state/toolhive/statuses/mcp-everything.json"
   # Windows thv stores state under %LOCALAPPDATA%\toolhive
   LOCAL_STATE="${LOCALAPPDATA:-}"
   if [[ -n "$LOCAL_STATE" ]]; then
     rm -f \
       "$LOCAL_STATE/toolhive/runconfigs/mcp-everything.json" \
-      "$LOCAL_STATE/toolhive/runconfigs/mcp-time.json" \
-      "$LOCAL_STATE/toolhive/statuses/mcp-everything.json" \
-      "$LOCAL_STATE/toolhive/statuses/mcp-time.json"
+      "$LOCAL_STATE/toolhive/statuses/mcp-everything.json"
   fi
 }
 
@@ -98,16 +94,9 @@ thv run npx://@modelcontextprotocol/server-everything@latest \
   --host 0.0.0.0 --proxy-port 19101 \
   --transport stdio --proxy-mode streamable-http \
   --isolate-network=false
-# time - timezone conversion, stdio-only via its docker image.
-thv run docker.io/mcp/time \
-  --name mcp-time \
-  --host 0.0.0.0 --proxy-port 19102 \
-  --transport stdio --proxy-mode streamable-http \
-  --isolate-network=false
-
 echo "==> [4/5] Verify workloads"
 thv list
-docker ps --format '{{.Names}}\t{{.Status}}' | grep -E 'mcp-(everything|time)' || true
+docker ps --format '{{.Names}}\t{{.Status}}' | grep -E 'mcp-everything' || true
 
 echo "==> [5/5] Start gateway + Keycloak + observability"
 # Volume ownership: the STOCK agentgateway image does NOT create
@@ -129,7 +118,7 @@ echo ""
 echo "Gateway endpoints:"
 echo "  :3000  MCP gateway (multiplexes tickets/catalog/customers/everything/time, Keycloak JWT required)"
 echo "  :4000  LLM gateway (DeepSeek + virtual keys)"
-echo "  :3001  A2A gateway (support-agent card + message/send)"
+echo "  :3001  A2A gateway (support-agent card + /v1/message:send)"
 echo "  Admin UI   -> http://localhost:15000/ui  (CEL playground at /ui/cel/)"
 echo "  Grafana    -> http://localhost:13000 (admin/admin)"
 echo "  Keycloak   -> http://localhost:8080 (admin/admin), realm agentgateway"

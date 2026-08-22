@@ -1,3 +1,5 @@
+stream_over_http_enabled: true
+
 server:
   http_listen_port: 3200
 
@@ -8,13 +10,6 @@ distributor:
         grpc:
           endpoint: 0.0.0.0:4317
 
-ingester:
-  max_block_duration: 5m
-
-compactor:
-  compaction:
-    block_retention: 24h
-
 storage:
   trace:
     backend: local
@@ -22,3 +17,6 @@ storage:
       path: /var/tempo/traces
     wal:
       path: /var/tempo/wal
+
+usage_report:
+  reporting_enabled: false

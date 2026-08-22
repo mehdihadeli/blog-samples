@@ -21,7 +21,7 @@ for arg in "$@"; do
   esac
 done
 
-WORKLOADS=(mcp-everything mcp-time)
+WORKLOADS=(mcp-everything)
 
 echo "==> [1/2] MCP workloads on the host (thv)"
 for w in "${WORKLOADS[@]}"; do
@@ -30,16 +30,12 @@ for w in "${WORKLOADS[@]}"; do
 done
 rm -f \
   "$HOME/.local/state/toolhive/runconfigs/mcp-everything.json" \
-  "$HOME/.local/state/toolhive/runconfigs/mcp-time.json" \
-  "$HOME/.local/state/toolhive/statuses/mcp-everything.json" \
-  "$HOME/.local/state/toolhive/statuses/mcp-time.json"
+  "$HOME/.local/state/toolhive/statuses/mcp-everything.json"
 LOCAL_STATE="${LOCALAPPDATA:-}"
 if [[ -n "$LOCAL_STATE" ]]; then
   rm -f \
     "$LOCAL_STATE/toolhive/runconfigs/mcp-everything.json" \
-    "$LOCAL_STATE/toolhive/runconfigs/mcp-time.json" \
-    "$LOCAL_STATE/toolhive/statuses/mcp-everything.json" \
-    "$LOCAL_STATE/toolhive/statuses/mcp-time.json"
+    "$LOCAL_STATE/toolhive/statuses/mcp-everything.json"
 fi
 
 echo "==> [2/2] Gateway + Keycloak + observability"

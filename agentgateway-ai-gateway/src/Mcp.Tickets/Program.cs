@@ -3,6 +3,7 @@ using ModelContextProtocol.AspNetCore;
 using ModelContextProtocol.Server;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.AddServiceDefaults();
 
 builder
     .Services.AddMcpServer()
@@ -16,6 +17,7 @@ builder
     .WithTools<TicketTools>();
 
 var app = builder.Build();
+app.MapDefaultEndpoints();
 
 // Expose the Streamable HTTP MCP endpoint.
 app.MapMcp("/mcp");

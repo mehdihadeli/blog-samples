@@ -17,17 +17,44 @@
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": true,
       "redirectUris": ["*"],
-      "webOrigins": ["*"]
+      "webOrigins": ["*"],
+      "protocolMappers": [
+        {
+          "name": "agentgateway-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "agentgateway",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false"
+          }
+        }
+      ]
     },
     {
       "clientId": "agentgateway-browser",
       "enabled": true,
       "protocol": "openid-connect",
-      "publicClient": true,
+      "publicClient": false,
+      "secret": "agentgateway-browser-secret",
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": false,
       "redirectUris": ["*"],
-      "webOrigins": ["*"]
+      "webOrigins": ["*"],
+      "protocolMappers": [
+        {
+          "name": "agentgateway-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "agentgateway",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false"
+          }
+        }
+      ]
     }
   ],
   "users": [
@@ -36,6 +63,7 @@
       "enabled": true,
       "email": "alice@example.com",
       "firstName": "Alice",
+      "lastName": "User",
       "credentials": [
         { "type": "password", "value": "alice-password", "temporary": false }
       ],
@@ -46,6 +74,7 @@
       "enabled": true,
       "email": "bob@example.com",
       "firstName": "Bob",
+      "lastName": "User",
       "credentials": [
         { "type": "password", "value": "bob-password", "temporary": false }
       ],

@@ -23,7 +23,7 @@ services:
     # Merge rule for volumes is "by container target path", so this swaps
     # the /config.yaml mount and keeps gateway-logs.
     volumes:
-      - ./agentgateway-config.remote-ratelimit.yaml:/config.yaml:ro
+      - ./agentgateway-config.remote-ratelimit.yaml:/config.yaml:rw
       - gateway-logs:/var/log/agentgateway
     depends_on:
       ratelimit:
@@ -31,10 +31,10 @@ services:
 
   # Per-user rate limiting: Envoy ratelimit + Redis
   ratelimit-redis:
-    image: redis:7-alpine
+    image: redis:7
 
   ratelimit:
-    image: envoyproxy/ratelimit:master
+    image: envoyproxy/ratelimit:latest
     environment:
       - USE_STATSD=false
       - REDIS_SOCKET_TYPE=tcp

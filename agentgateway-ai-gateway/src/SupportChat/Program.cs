@@ -17,14 +17,15 @@ using OpenAI;
 //   - MCP tools     -> http://localhost:3000/mcp  (gateway MCP port)
 //   - A2A agent     -> http://localhost:3001      (gateway A2A route)
 //
-// The MCP calls are authenticated with a Keycloak access token (the gateway
-// is configured with mcpAuthentication: keycloak), and the LLM calls carry a
-// virtual API key created with llm.policies.apiKey.
+// The MCP and A2A calls are authenticated with a Keycloak access token (the
+// gateway MCP endpoint is configured with mcpAuthentication and the A2A route
+// with jwtAuth), and the LLM calls carry a virtual API key created with
+// llm.policies.apiKey.
 // ---------------------------------------------------------------------------
 
 const string GatewayMcpUrl = "http://localhost:3000/mcp";
 const string GatewayLlmUrl = "http://localhost:4000/v1";
-const string GatewayA2AUrl = "http://localhost:3001";
+const string GatewayA2AUrl = "http://localhost:3001/v1/message:send";
 const string KeycloakTokenUrl =
     "http://localhost:8080/realms/agentgateway/protocol/openid-connect/token";
 const string GatewayApiKey = "sk-alice-abc123def456"; // virtual key, metadata.user = "alice"
@@ -106,7 +107,12 @@ chatClient = chatClient
         {
             foreach (var tool in tools)
             {
-                options!.AdditionalTools.Add(tool);
+#pragma warning disable CS8602
+                if (options is not null && tool is not null)
+                {
+                    options.AdditionalTools.Add(tool);
+                }
+#pragma warning restore CS8602
             }
         }
     )
@@ -118,10 +124,12 @@ await RunTurnAsync("Search the catalog for a laptop and check its stock.", chatC
 await RunTurnAsync("Create a ticket for the login outage.", chatClient);
 
 // 5) Talk to the A2A agent through the gateway's A2A route.
+//    The route now requires the same Keycloak JWT as the MCP endpoint.
 Console.WriteLine();
 Console.WriteLine("[a2a] sending message/send to the agent through the gateway...");
 var agentReply = await SendA2AMessageAsync(
     GatewayA2AUrl,
+    accessToken,
     "Please summarize the current open tickets."
 );
 Console.WriteLine($"[a2a] agent reply: {agentReply}");
@@ -149,16 +157,25 @@ static string Base64UrlDecode(string input)
     return System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(padded));
 }
 
-static async Task<string?> SendA2AMessageAsync(string agentEndpoint, string text)
+static async Task<string?> SendA2AMessageAsync(
+    string agentEndpoint,
+    string accessToken,
+    string text
+)
 {
     using var client = new HttpClient();
+    client.DefaultRequestHeaders.Authorization =
+        new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+
     var requestId = Guid.NewGuid().ToString("N");
     var payload = new
     {
-        jsonrpc = "2.0",
-        id = requestId,
-        method = "message/send",
-        @params = new { message = new { role = "user", parts = new[] { new { text } } } },
+        message = new
+        {
+            messageId = requestId,
+            role = "user",
+            parts = new[] { new { kind = "text", text } },
+        },
     };
 
     var response = await client.PostAsJsonAsync(agentEndpoint, payload);

@@ -1,0 +1,25 @@
+# Optional LLM policy fragment.
+# Merge this guardrail into llm.models[] only when OPENAI_API_KEY is set.
+# It calls OpenAI's moderation endpoint before the provider request.
+llm:
+  models:
+    - name: deepseek-chat
+      guardrails:
+        request:
+          - openAIModeration:
+              model: omni-moderation-latest
+              policies:
+                backendAuth:
+                  key: "$OPENAI_API_KEY"
+                rejection:
+                  body: "Content blocked by moderation policy"
+    - name: deepseek-reasoner
+      guardrails:
+        request:
+          - openAIModeration:
+              model: omni-moderation-latest
+              policies:
+                backendAuth:
+                  key: "$OPENAI_API_KEY"
+                rejection:
+                  body: "Content blocked by moderation policy"

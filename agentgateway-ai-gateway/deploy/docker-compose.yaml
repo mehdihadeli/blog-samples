@@ -9,8 +9,8 @@
 #                   host.docker.internal (see scripts/start-mcps.sh)
 #   support-agent - .NET A2A agent behind the gateway's A2A route
 #   keycloak      - OIDC identity provider for MCP authentication (PKCE)
-#   otel-collector- traces/logs to Tempo, Loki, Langfuse
-#   tempo/loki/prometheus/promtail/grafana - LGTM observability stack
+#   otel-collector- OTLP traces and Docker file logs to Tempo, Loki, Langfuse
+#   tempo/loki/prometheus/grafana - LGTM observability stack
 #   langfuse      - self-hosted LLM observability
 #
 # WHEN TO USE TOOLHIVE vs DIRECT HTTP (see README "ToolHive vs direct HTTP"):
@@ -67,6 +67,10 @@ services:
         condition: service_started
       mcp-customers:
         condition: service_started
+      mcp-time:
+        condition: service_started
+      petstore:
+        condition: service_started
     # Hardening: read-only rootfs, no capabilities, no privilege escalation.
     # The image default user is non-root uid 65532. There is NO docker.sock
     # mount - the gateway holds zero container-management privileges.
@@ -80,14 +84,19 @@ services:
       - "host.docker.internal:host-gateway"
     ports:
       - "4000:4000" # LLM gateway
+      - "4001:4001" # Browser OIDC/PKCE LLM gateway
       - "3000:3000" # MCP gateway
       - "3001:3001" # A2A gateway (route)
       - "15000:15000" # Admin UI
       - "15020:15020" # Prometheus metrics
     volumes:
-      - ./agentgateway-config.yaml:/config.yaml:ro
+      # The Admin UI can persist policy edits such as Apply CORS. The gateway
+      # root filesystem remains read-only; only this scoped config mount is writable.
+      - ./agentgateway-config.yaml:/config.yaml:rw
+      - ./costs/catalog.json:/costs/catalog.json:ro
+      - ./openapi/petstore.yaml:/openapi/petstore.yaml:ro
       # OPTIONAL (Envoy rate limiting): swap the mount above to
-      #   - ./agentgateway-config.remote-ratelimit.yaml:/config.yaml:ro
+      #   - ./agentgateway-config.remote-ratelimit.yaml:/config.yaml:rw
       # and uncomment the ratelimit services below.
       # Writable dir for the SQLite request-log DB under the read-only
       # rootfs (config.logging.database, see agentgateway-config.yaml).
@@ -95,12 +104,13 @@ services:
       - gateway-logs:/var/log/agentgateway
     environment:
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:?set your DeepSeek key in .env}
+      - OIDC_COOKIE_SECRET=${OIDC_COOKIE_SECRET:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
 
   # -------------------------------------------------------------------------
   # Identity: Keycloak
   # -------------------------------------------------------------------------
   keycloak:
-    image: quay.io/keycloak/keycloak:latest
+    image: quay.io/keycloak/keycloak:26.0
     container_name: agentgateway-ai-gateway-keycloak
     restart: unless-stopped
     command: ["start-dev", "--import-realm"]
@@ -192,6 +202,26 @@ services:
       - ASPNETCORE_URLS=http://+:8083
     depends_on: []
 
+  mcp-time:
+    build:
+      context: ../src
+      dockerfile: Mcp.Time/Dockerfile
+    environment:
+      - ASPNETCORE_URLS=http://+:8084
+    depends_on: []
+
+  # REST API exposed as MCP tools through the gateway's OpenAPI adapter.
+  petstore:
+    image: swaggerapi/petstore3:unstable
+    restart: unless-stopped
+
+  # Receives a small percentage of mirrored MCP traffic. It is intentionally
+  # side-effect free; replace with an evaluation or audit service in production.
+  mcp-mirror:
+    image: hashicorp/http-echo:1.0
+    command: ["-listen=:5678", "-text=mirrored"]
+    restart: unless-stopped
+
   # mcp-everything and mcp-time are NOT in this stack: they run on the HOST
   # via ToolHive (scripts/start-mcps.sh) and are proxied to the gateway at
   # http://host.docker.internal:19101/mcp and http://host.docker.internal:19102/mcp.
@@ -219,6 +249,8 @@ services:
       dockerfile: SupportAgent/Dockerfile
     environment:
       - ASPNETCORE_URLS=http://+:9999
+      - A2A_SERVER_ADDRESS=http://support-agent:9999
+      - A2A_SERVER_URL=http://support-agent:9999
       - GATEWAY_LLM_URL=http://agentgateway:4000/v1
       - GATEWAY_API_KEY=sk-alice-abc123def456
     depends_on:
@@ -229,22 +261,25 @@ services:
   # Langfuse (LLM traces). Prometheus scrapes the gateway directly.
   # -------------------------------------------------------------------------
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:latest
+    image: otel/opentelemetry-collector-contrib:0.146.0
+    # Docker JSON log files are root-readable on Docker Desktop. The Collector
+    # has no Docker socket and reads this directory through a read-only mount.
+    user: "0:0"
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     ports:
       - "4317:4317"
     environment:
-      - LANGFUSE_PUBLIC_KEY=pk-lf-00000000-0000-0000-0000-000000000001
-      - LANGFUSE_SECRET_KEY=sk-lf-00000000-0000-0000-0000-000000000001
+      - LANGFUSE_AUTH=cGstbGYtMDAwMDAwMDAtMDAwMC0wMDAwLTAwMDAtMDAwMDAwMDAwMDAxOnNrLWxmLTAwMDAwMDAwLTAwMDAtMDAwMC0wMDAwLTAwMDAwMDAwMDAwMQ==
     volumes:
       - ./infra/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
     depends_on:
       - tempo
       - loki
       - langfuse-web
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v2.55.1
     ports:
       - "9090:9090"
     volumes:
@@ -259,26 +294,19 @@ services:
       - "3200:3200"
     volumes:
       - ./infra/tempo.yaml:/etc/tempo/config.yaml:ro
+      - tempo-data:/var/tempo
 
   loki:
-    image: grafana/loki:latest
+    image: grafana/loki:3.3.2
     command: ["-config.file=/etc/loki/config.yaml"]
     ports:
       - "3100:3100"
     volumes:
       - ./infra/loki.yaml:/etc/loki/config.yaml:ro
-
-  promtail:
-    image: grafana/promtail:latest
-    command: ["-config.file=/etc/promtail/config.yaml"]
-    volumes:
-      - ./infra/promtail.yaml:/etc/promtail/config.yaml:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    depends_on:
-      - loki
+      - loki-data:/loki
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana-oss:11.4.0
     ports:
       - "13000:3000"
     environment:
@@ -297,27 +325,42 @@ services:
   # OTel Collector's otlphttp/langfuse exporter (OTLP ingestion).
   # -------------------------------------------------------------------------
   langfuse-db:
-    image: postgres:17
+    image: postgres:15
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=langfuse
 
   langfuse-redis:
-    image: redis:7-alpine
+    image: redis:7
+    command: ["redis-server", "--requirepass", "redissecret"]
 
   langfuse-web:
-    image: langfuse/langfuse:latest
+    image: langfuse/langfuse:3
     ports:
       - "13001:3000"
     environment:
       - NODE_ENV=production
       - DATABASE_URL=postgresql://postgres:postgres@langfuse-db:5432/langfuse
-      - REDIS_URL=redis://langfuse-redis:6379
+      - REDIS_URL=redis://:redissecret@langfuse-redis:6379
+      - REDIS_HOST=langfuse-redis
+      - REDIS_PORT=6379
+      - REDIS_AUTH=redissecret
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - CLICKHOUSE_MIGRATION_URL=clickhouse://clickhouse:9000
+      - CLICKHOUSE_USER=clickhouse
+      - CLICKHOUSE_PASSWORD=clickhouse
+      - CLICKHOUSE_CLUSTER_ENABLED=false
       - NEXTAUTH_URL=http://localhost:13001
       - NEXTAUTH_SECRET=agentgateway-demo-nextauth-secret-123456
       - SALT=agentgateway-demo-salt-1234567890
-      - ENCRYPTION_KEY=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+      - ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      - LANGFUSE_S3_EVENT_UPLOAD_BUCKET=langfuse
+      - LANGFUSE_S3_EVENT_UPLOAD_REGION=us-east-1
+      - LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID=minio
+      - LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY=miniosecret
+      - LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT=http://minio:9000
+      - LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE=true
       - LANGFUSE_INIT_ORG_ID=agentgateway
       - LANGFUSE_INIT_ORG_NAME=Agent Gateway
       - LANGFUSE_INIT_PROJECT_ID=ai-gateway
@@ -328,22 +371,80 @@ services:
       - LANGFUSE_INIT_USER_NAME=Admin
       - LANGFUSE_INIT_USER_PASSWORD=admin-password
     depends_on:
-      - langfuse-db
-      - langfuse-redis
+      langfuse-db:
+        condition: service_started
+      langfuse-redis:
+        condition: service_started
+      clickhouse:
+        condition: service_started
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --spider --quiet http://$(hostname):3000/api/public/health || exit 1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
 
   langfuse-worker:
-    image: langfuse/langfuse:latest
-    command: ["npm", "run", "worker"]
+    image: langfuse/langfuse-worker:3
     environment:
       - NODE_ENV=production
       - DATABASE_URL=postgresql://postgres:postgres@langfuse-db:5432/langfuse
-      - REDIS_URL=redis://langfuse-redis:6379
+      - REDIS_URL=redis://:redissecret@langfuse-redis:6379
+      - REDIS_HOST=langfuse-redis
+      - REDIS_PORT=6379
+      - REDIS_AUTH=redissecret
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - CLICKHOUSE_MIGRATION_URL=clickhouse://clickhouse:9000
+      - CLICKHOUSE_USER=clickhouse
+      - CLICKHOUSE_PASSWORD=clickhouse
+      - CLICKHOUSE_CLUSTER_ENABLED=false
       - NEXTAUTH_SECRET=agentgateway-demo-nextauth-secret-123456
       - SALT=agentgateway-demo-salt-1234567890
-      - ENCRYPTION_KEY=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+      - ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      - LANGFUSE_S3_EVENT_UPLOAD_BUCKET=langfuse
+      - LANGFUSE_S3_EVENT_UPLOAD_REGION=us-east-1
+      - LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID=minio
+      - LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY=miniosecret
+      - LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT=http://minio:9000
+      - LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE=true
     depends_on:
-      - langfuse-db
-      - langfuse-redis
+      langfuse-web:
+        condition: service_healthy
+
+  minio:
+    image: minio/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      - MINIO_ROOT_USER=minio
+      - MINIO_ROOT_PASSWORD=miniosecret
+    volumes:
+      - minio-data:/data
+
+  minio-init:
+    image: minio/mc:latest
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      [
+        "until mc alias set local http://minio:9000 minio miniosecret; do sleep 1; done; mc mb --ignore-existing local/langfuse",
+      ]
+    depends_on:
+      - minio
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    environment:
+      - CLICKHOUSE_DB=default
+      - CLICKHOUSE_USER=clickhouse
+      - CLICKHOUSE_PASSWORD=clickhouse
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - clickhouse-logs:/var/log/clickhouse-server
 
 # gateway-logs: writable dir for the gateway's SQLite request-log DB under
 # the read-only rootfs (scripts/start-mcps.sh chowns it to uid 65532).
@@ -351,3 +452,8 @@ services:
 volumes:
   gateway-logs:
   keycloak-data:
+  tempo-data:
+  loki-data:
+  clickhouse-data:
+  clickhouse-logs:
+  minio-data:

@@ -13,7 +13,7 @@ using SupportAgent;
 //
 // A minimal A2A (Agent-to-Agent protocol) host built on the a2a-net SDK.
 // AgentGateway fronts it with the `a2a` route policy, serves its agent card
-// on /.well-known/agent.json, and exposes it to other agents over port 3001.
+// on /.well-known/agent-card.json, and exposes it to other agents over port 3001.
 // The agent itself calls DeepSeek through the gateway (same virtual key).
 // ---------------------------------------------------------------------------
 
@@ -23,6 +23,7 @@ var gatewayApiKey =
     Environment.GetEnvironmentVariable("GATEWAY_API_KEY") ?? "sk-alice-abc123def456";
 
 var builder = WebApplication.CreateBuilder(args);
+builder.AddServiceDefaults();
 
 // DeepSeek through the gateway, OpenAI-compatible endpoint.
 var openAiOptions = new OpenAIClientOptions
@@ -65,6 +66,7 @@ builder.Services.AddA2AServer(server =>
 );
 
 var app = builder.Build();
+app.MapDefaultEndpoints();
 
 app.UseA2AServer();
 

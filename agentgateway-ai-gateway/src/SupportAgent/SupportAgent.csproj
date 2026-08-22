@@ -7,6 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\ServiceDefaults\ServiceDefaults.csproj" />
     <PackageReference Include="a2a-net.Server" Version="0.21.0" />
     <PackageReference Include="a2a-net.Server.Persistence.Memory" Version="0.21.0" />
     <PackageReference Include="a2a-net.Server.Scheduling.Memory" Version="0.21.0" />

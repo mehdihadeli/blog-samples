@@ -1,0 +1,24 @@
+# Optional Kubernetes AgentGatewayPolicy fragment for ExtMCP.
+# The default sample runs standalone Compose, while ExtMCP is configured here
+# for a Kubernetes AgentgatewayBackend and an external gRPC policy service.
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: mcp-guardrails
+spec:
+  targetRefs:
+    - group: agentgateway.dev
+      kind: AgentgatewayBackend
+      name: mcp-backend
+  backend:
+    mcp:
+      guardrails:
+        processors:
+          - remote:
+              backendRef:
+                name: ext-mcp
+                port: 4445
+              failureMode: FailClosed
+              methods:
+                tools/call: Request
+                tools/list: Response

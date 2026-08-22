@@ -17,3 +17,17 @@ descriptors:
     rate_limit:
       unit: minute
       requests_per_unit: 30
+
+  # LLM token budgets share this domain but use a distinct descriptor key.
+  # AgentGateway sends the virtual API-key metadata value (`apiKey.user`) as
+  # `user_id` and marks the request as a token-based limit.
+  - key: user_id
+    value: alice
+    rate_limit:
+      unit: day
+      requests_per_unit: 100000
+  - key: user_id
+    value: bob
+    rate_limit:
+      unit: day
+      requests_per_unit: 50000

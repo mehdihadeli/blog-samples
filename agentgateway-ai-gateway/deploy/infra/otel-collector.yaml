@@ -5,6 +5,23 @@ receivers:
     protocols:
       grpc:
         endpoint: 0.0.0.0:4317
+  filelog/docker:
+    include:
+      - /var/lib/docker/containers/*/*-json.log
+    start_at: end
+    include_file_path: true
+    operators:
+      - type: json_parser
+        id: parse-docker-json
+        parse_from: body
+      - type: move
+        id: move-docker-log
+        from: attributes.log
+        to: body
+      - type: time_parser
+        id: parse-docker-time
+        parse_from: attributes.time
+        layout: "%Y-%m-%dT%H:%M:%S.%fZ"
 
 processors:
   batch: {}
@@ -22,15 +39,24 @@ exporters:
     # Langfuse OTLP ingestion endpoint (public API, HTTP/protobuf)
     endpoint: http://langfuse-web:3000/api/public/otel
     headers:
-      Authorization: "Bearer ${env:LANGFUSE_PUBLIC_KEY}:${env:LANGFUSE_SECRET_KEY}"
+      Authorization: "Basic ${env:LANGFUSE_AUTH}"
+      x-langfuse-ingestion-version: "4"
 
 service:
+  telemetry:
+    metrics:
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
   pipelines:
     traces:
       receivers: [otlp]
       processors: [batch]
       exporters: [otlp/tempo, otlphttp/langfuse, debug]
     logs:
-      receivers: [otlp]
+      receivers: [filelog/docker]
       processors: [batch]
       exporters: [otlphttp/loki, debug]
