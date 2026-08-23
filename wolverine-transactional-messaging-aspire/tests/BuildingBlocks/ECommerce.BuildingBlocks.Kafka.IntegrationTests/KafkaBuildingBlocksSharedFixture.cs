@@ -1,35 +1,43 @@
-using ECommerce.BuildingBlocks.TestHost;
+using BuildingBlocks.Integration.Wolverine.Kafka.Extensions;
+using ECommerce.BuildingBlocks.Kafka.IntegrationTests.Messaging;
+using Microsoft.AspNetCore.Builder;
 using Tests.Shared.Fixtures;
 
 namespace ECommerce.BuildingBlocks.Kafka.IntegrationTests;
 
 /// <summary>
 /// Shared fixture for the Kafka building-block integration tests.
-/// Boots Kafka, then starts the isolated <see cref="Program"/> test host
-/// configured for Kafka. No durable storage is used: the building-block tests
-/// exercise publish/consume round-trips, so Wolverine runs with its in-memory
-/// message store (no Postgres polling agents, no Respawn conflict).
-/// The host wires the manual topology via
+/// Boots a real Kafka container, then builds its OWN host with
+/// <c>WebApplication.CreateBuilder</c> (no shared test-host project) and wires
+/// the Kafka building block with the manual topology via
 /// <c>AddWolverineKafka(..., configure: ConfigureTestKafkaTopology)</c>.
+/// No durable storage is used: the building-block tests exercise
+/// publish/consume round-trips, so Wolverine runs with its in-memory
+/// message store (no Postgres polling agents, no Respawn conflict).
 /// </summary>
-public sealed class KafkaBuildingBlocksSharedFixture() : SharedFixture<Program>(useKafka: true)
+public sealed class KafkaBuildingBlocksSharedFixture() : BuildingBlocksSharedFixture(useKafka: true)
 {
-    protected override void ApplyOverrideEnvKeyValues(IDictionary<string, string> dictionary)
+    protected override void ConfigureBuilder(WebApplicationBuilder builder)
     {
-        dictionary["WolverineBusOptions__TransportType"] = "kafka";
-        dictionary["WolverineBusOptions__AutoConfigMessagesTopology"] = "false";
-        dictionary["WolverineBusOptions__UseEntityFrameworkCoreTransactions"] = "false";
-        dictionary["WolverineBusOptions__UseDurableLocalQueues"] = "false";
-        dictionary["ConnectionStrings__kafka"] = Kafka!.BootstrapServers;
-    }
-
-    protected override void ApplyOverrideInMemoryConfig(IDictionary<string, string> dictionary)
-    {
-        dictionary["WolverineBusOptions:TransportType"] = "kafka";
-        dictionary["WolverineBusOptions:AutoConfigMessagesTopology"] = "false";
-        dictionary["WolverineBusOptions:UseEntityFrameworkCoreTransactions"] = "false";
-        dictionary["WolverineBusOptions:UseDurableLocalQueues"] = "false";
-        dictionary["ConnectionStrings:kafka"] = Kafka!.BootstrapServers;
+        builder.AddWolverineKafka(
+            wolverineBusOptions =>
+            {
+                // Use the container's mapped address directly. Named Wolverine
+                // connections are resolved by the application's connection
+                // conventions and can leave this standalone test host waiting
+                // forever for a broker that is actually ready.
+                wolverineBusOptions.ConnectionString = Kafka!.BootstrapServers;
+                wolverineBusOptions.AutoConfigMessagesTopology = false;
+                wolverineBusOptions.UseDurableLocalQueues = false;
+                wolverineBusOptions.UseEntityFrameworkCoreTransactions = false;
+            },
+            // Manual topology: exercises the Kafka building-block builder API.
+            configure: kafka => kafka.ConfigureTestKafkaTopology(),
+            // Handler + message discovery: the test project assembly (and with it
+            // the topology above) is registered explicitly — Wolverine never finds
+            // handlers in a test-runner assembly by itself.
+            assemblies: [typeof(KafkaBuildingBlocksSharedFixture).Assembly]
+        );
     }
 
     /// <summary>

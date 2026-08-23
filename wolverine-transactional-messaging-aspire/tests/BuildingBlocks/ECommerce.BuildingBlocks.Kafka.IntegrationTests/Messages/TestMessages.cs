@@ -1,10 +1,10 @@
 using BuildingBlocks.Core.Messages;
 
-namespace ECommerce.BuildingBlocks.TestHost.Messages;
+namespace ECommerce.BuildingBlocks.Kafka.IntegrationTests.Messages;
 
-// Test-only integration events. Deliberately defined HERE (not in any
-// microservice) so the building-block integration tests stay fully
-// independent from the e-commerce services.
+// Test-only integration events. Deliberately defined in the building-block test
+// project (not in any microservice) so the building-block integration tests stay
+// fully independent from the e-commerce services.
 
 public sealed record ProductCreatedV1(
     Guid ProductId,

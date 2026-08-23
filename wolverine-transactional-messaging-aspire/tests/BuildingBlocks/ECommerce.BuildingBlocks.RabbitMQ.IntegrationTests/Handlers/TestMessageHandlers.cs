@@ -1,7 +1,7 @@
 using BuildingBlocks.Core.Messages;
-using ECommerce.BuildingBlocks.TestHost.Messages;
+using ECommerce.BuildingBlocks.RabbitMQ.IntegrationTests.Messages;
 
-namespace ECommerce.BuildingBlocks.TestHost.Handlers;
+namespace ECommerce.BuildingBlocks.RabbitMQ.IntegrationTests.Handlers;
 
 // In-process handlers so TrackActivity's external-transport tracking can
 // complete: with IncludeExternalTransports() the Sent record of an external

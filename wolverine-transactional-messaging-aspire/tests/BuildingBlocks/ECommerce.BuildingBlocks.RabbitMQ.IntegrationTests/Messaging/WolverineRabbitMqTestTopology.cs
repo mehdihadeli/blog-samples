@@ -1,17 +1,17 @@
 using BuildingBlocks.Core.Messages;
 using BuildingBlocks.Integration.Wolverine.RabbitMQ;
-using ECommerce.BuildingBlocks.TestHost.Messages;
+using ECommerce.BuildingBlocks.RabbitMQ.IntegrationTests.Messages;
 using Wolverine.RabbitMQ;
 
-namespace ECommerce.BuildingBlocks.TestHost.Messaging;
+namespace ECommerce.BuildingBlocks.RabbitMQ.IntegrationTests.Messaging;
 
 /// <summary>
 /// Manual RabbitMQ topology that exercises the building block's builder API:
 /// <c>PublishToExchange</c>, <c>Listen</c>, <c>Publish&lt;T&gt;(queueName)</c>,
 /// <c>UseSnakeCaseConventions</c>, <c>DeclareExchange</c>, <c>DeclareQueue</c>,
 /// <c>BindQueue</c> and <c>BindExchangeToExchange</c>.
-/// Wired in via <c>AddWolverineRabbitMq(..., configure: ...)</c> when
-/// <c>AutoConfigMessagesTopology = false</c>.
+/// Wired in via the test host's <c>AddWolverineRabbitMq(..., configure: ...)</c>
+/// call when <c>AutoConfigMessagesTopology = false</c>.
 /// </summary>
 public static class WolverineRabbitMqTestTopology
 {

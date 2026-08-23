@@ -1,10 +1,9 @@
 using System.Reflection;
 using BuildingBlocks.Integration.Wolverine.Configuration;
 using BuildingBlocks.Integration.Wolverine.Extensions;
+using BuildingBlocks.Integration.Wolverine.RabbitMQ;
 using Microsoft.Extensions.Hosting;
 using Wolverine.RabbitMQ;
-
-namespace BuildingBlocks.Integration.Wolverine.RabbitMQ.Extensions;
 
 public static class Extensions
 {
@@ -45,14 +44,18 @@ public static class Extensions
                     assemblies ??= [];
                     if (assemblies.Count != 0)
                     {
-                        registrationBuilder.ApplyMessagesPublishTopology(assemblies);
+                        global::BuildingBlocks.Integration.Wolverine.RabbitMQ.Extensions.WolverineRabbitMqConventionExtensions.ApplyMessagesPublishTopology(
+                            registrationBuilder,
+                            assemblies
+                        );
                     }
                 }
                 else
                 {
                     configure?.Invoke(registrationBuilder);
                 }
-            }
+            },
+            assemblies: assemblies
         );
 
         return builder;

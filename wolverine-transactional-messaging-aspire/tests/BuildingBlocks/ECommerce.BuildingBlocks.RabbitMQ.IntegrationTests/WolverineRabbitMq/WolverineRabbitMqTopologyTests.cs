@@ -1,5 +1,5 @@
 using ECommerce.BuildingBlocks.RabbitMQ.IntegrationTests.Infrastructure;
-using ECommerce.BuildingBlocks.TestHost.Messaging;
+using ECommerce.BuildingBlocks.RabbitMQ.IntegrationTests.Messaging;
 using Shouldly;
 
 namespace ECommerce.BuildingBlocks.RabbitMQ.IntegrationTests.WolverineRabbitMq;

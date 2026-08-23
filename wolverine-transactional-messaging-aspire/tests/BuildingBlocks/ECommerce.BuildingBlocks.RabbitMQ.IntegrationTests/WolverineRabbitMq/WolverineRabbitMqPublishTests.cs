@@ -1,5 +1,5 @@
 using BuildingBlocks.Core.Messages;
-using ECommerce.BuildingBlocks.TestHost.Messages;
+using ECommerce.BuildingBlocks.RabbitMQ.IntegrationTests.Messages;
 using Microsoft.Extensions.DependencyInjection;
 using Wolverine;
 

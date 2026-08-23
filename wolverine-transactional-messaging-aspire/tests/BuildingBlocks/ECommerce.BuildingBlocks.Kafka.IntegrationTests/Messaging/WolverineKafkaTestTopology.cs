@@ -1,18 +1,18 @@
 using BuildingBlocks.Core.Messages;
 using BuildingBlocks.Integration.Wolverine.Kafka;
 using Confluent.Kafka;
-using ECommerce.BuildingBlocks.TestHost.Messages;
+using ECommerce.BuildingBlocks.Kafka.IntegrationTests.Messages;
 using Humanizer;
 
-namespace ECommerce.BuildingBlocks.TestHost.Messaging;
+namespace ECommerce.BuildingBlocks.Kafka.IntegrationTests.Messaging;
 
 /// <summary>
 /// Manual Kafka topology that exercises the building block's builder API:
 /// <c>PublishToTopic</c> (with topic specification), <c>Listen</c> (explicit
 /// topic + consumer group), <c>UseSnakeCaseConventions</c> (auto-named
 /// topic/group) and <c>WithNamingConvention</c> (custom topic names).
-/// Wired in via <c>AddWolverineKafka(..., configure: ...)</c> when
-/// <c>AutoConfigMessagesTopology = false</c>.
+/// Wired in via the test host's <c>AddWolverineKafka(..., configure: ...)</c>
+/// call when <c>AutoConfigMessagesTopology = false</c>.
 /// </summary>
 /// <remarks>
 /// IMPORTANT (Wolverine 6.2.0 semantics): <c>ConfigureConsumer()</c> is NOT

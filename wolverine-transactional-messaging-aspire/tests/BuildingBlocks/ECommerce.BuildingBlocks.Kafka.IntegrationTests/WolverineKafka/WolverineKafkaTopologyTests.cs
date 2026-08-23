@@ -1,6 +1,6 @@
 using Confluent.Kafka;
 using Confluent.Kafka.Admin;
-using ECommerce.BuildingBlocks.TestHost.Messaging;
+using ECommerce.BuildingBlocks.Kafka.IntegrationTests.Messaging;
 using Shouldly;
 
 namespace ECommerce.BuildingBlocks.Kafka.IntegrationTests.WolverineKafka;
