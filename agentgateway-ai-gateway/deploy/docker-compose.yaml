@@ -110,7 +110,7 @@ services:
   # Identity: Keycloak
   # -------------------------------------------------------------------------
   keycloak:
-    image: quay.io/keycloak/keycloak:26.0
+    image: quay.io/keycloak/keycloak:latest
     container_name: agentgateway-ai-gateway-keycloak
     restart: unless-stopped
     command: ["start-dev", "--import-realm"]
@@ -132,7 +132,7 @@ services:
     healthcheck:
       test: [
           "CMD-SHELL",
-          # Keycloak 26 serves /health/ready on the management interface
+          # Keycloak serves /health/ready on the management interface
           # (port 9000), not on the main HTTP port 8080.
           "exec 3<>/dev/tcp/localhost/9000 && echo -e 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 && cat <&3 | grep -q '200 OK'",
         ]
@@ -153,7 +153,7 @@ services:
   # same thing without editing this file.
   # -------------------------------------------------------------------------
   # ratelimit-redis:
-  #   image: redis:7-alpine
+  #   image: redis:latest
   #
   # ratelimit:
   #   image: envoyproxy/ratelimit:master
@@ -212,13 +212,13 @@ services:
 
   # REST API exposed as MCP tools through the gateway's OpenAPI adapter.
   petstore:
-    image: swaggerapi/petstore3:unstable
+    image: swaggerapi/petstore3:latest
     restart: unless-stopped
 
   # Receives a small percentage of mirrored MCP traffic. It is intentionally
   # side-effect free; replace with an evaluation or audit service in production.
   mcp-mirror:
-    image: hashicorp/http-echo:1.0
+    image: hashicorp/http-echo:latest
     command: ["-listen=:5678", "-text=mirrored"]
     restart: unless-stopped
 
@@ -261,7 +261,7 @@ services:
   # Langfuse (LLM traces). Prometheus scrapes the gateway directly.
   # -------------------------------------------------------------------------
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.146.0
+    image: otel/opentelemetry-collector-contrib:latest
     # Docker JSON log files are root-readable on Docker Desktop. The Collector
     # has no Docker socket and reads this directory through a read-only mount.
     user: "0:0"
@@ -279,7 +279,7 @@ services:
       - langfuse-web
 
   prometheus:
-    image: prom/prometheus:v2.55.1
+    image: prom/prometheus:latest
     ports:
       - "9090:9090"
     volumes:
@@ -297,7 +297,7 @@ services:
       - tempo-data:/var/tempo
 
   loki:
-    image: grafana/loki:3.3.2
+    image: grafana/loki:latest
     command: ["-config.file=/etc/loki/config.yaml"]
     ports:
       - "3100:3100"
@@ -306,7 +306,7 @@ services:
       - loki-data:/loki
 
   grafana:
-    image: grafana/grafana-oss:11.4.0
+    image: grafana/grafana-oss:latest
     ports:
       - "13000:3000"
     environment:
@@ -325,18 +325,18 @@ services:
   # OTel Collector's otlphttp/langfuse exporter (OTLP ingestion).
   # -------------------------------------------------------------------------
   langfuse-db:
-    image: postgres:15
+    image: postgres:latest
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=langfuse
 
   langfuse-redis:
-    image: redis:7
+    image: redis:latest
     command: ["redis-server", "--requirepass", "redissecret"]
 
   langfuse-web:
-    image: langfuse/langfuse:3
+    image: langfuse/langfuse:latest
     ports:
       - "13001:3000"
     environment:
@@ -391,7 +391,7 @@ services:
       start_period: 30s
 
   langfuse-worker:
-    image: langfuse/langfuse-worker:3
+    image: langfuse/langfuse-worker:latest
     environment:
       - NODE_ENV=production
       - DATABASE_URL=postgresql://postgres:postgres@langfuse-db:5432/langfuse
@@ -437,7 +437,7 @@ services:
       - minio
 
   clickhouse:
-    image: clickhouse/clickhouse-server:24.8
+    image: clickhouse/clickhouse-server:latest
     environment:
       - CLICKHOUSE_DB=default
       - CLICKHOUSE_USER=clickhouse

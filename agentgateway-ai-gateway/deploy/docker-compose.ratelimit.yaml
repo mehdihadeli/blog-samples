@@ -31,7 +31,7 @@ services:
 
   # Per-user rate limiting: Envoy ratelimit + Redis
   ratelimit-redis:
-    image: redis:7
+    image: redis:latest
 
   ratelimit:
     image: envoyproxy/ratelimit:latest
