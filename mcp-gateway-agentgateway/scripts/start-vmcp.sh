@@ -7,7 +7,7 @@
 #      memory :19011, fetch :19012, sequentialthinking :19013, everything
 #      :19014 (each proxied stdio -> Streamable HTTP; everything is built
 #      on demand from the npm package via npx://).
-#   2. Keycloak in Docker (deployments/docker-compose.vmcp.yml) — OIDC IdP,
+#   2. Keycloak in Docker (start separately with deployments/docker-compose.vmcp.yml) — OIDC IdP,
 #      realm mcp-demo, public PKCE client mcp-gateway (the SAME realm/client the
 #      agentgateway SSO port uses, so one minted token works for both).
 #   3. `thv vmcp serve` on the HOST — the vMCP aggregates the 4 workloads
@@ -15,9 +15,9 @@
 #      OIDC (Keycloak JWTs) on every client request per deployments/vmcp.yaml.
 #
 # Usage:
-#   ./scripts/start-vmcp.sh             # start everything
+#   ./scripts/start-vmcp.sh             # start host workloads and vMCP
 #   ./scripts/start-vmcp.sh --verbose   # ... and tail the vMCP log
-#   ./scripts/stop-vmcp.sh              # stop everything
+#   ./scripts/stop-vmcp.sh              # stop host workloads and vMCP
 #
 # Prerequisites:
 #   - ToolHive:   winget install stacklok.thv (Windows) / brew install thv (macOS)
@@ -156,16 +156,10 @@ thv run npx://@modelcontextprotocol/server-everything@latest \
   --transport stdio --proxy-mode streamable-http \
   --isolate-network=false
 
-echo "==> [4/6] Start Keycloak (deployments/docker-compose.vmcp.yml)"
-# Volume ownership: the official Keycloak image runs as uid 1000 and needs
-# its persistent data dir writable (see deployments/docker-compose.stdio.yml notes).
-KEYCLOAK_DATA_VOL="docker-compose-vmcp_keycloak-data"
-docker volume create "$KEYCLOAK_DATA_VOL" >/dev/null 2>&1 || true
-MSYS_NO_PATHCONV=1 docker run --rm -v "$KEYCLOAK_DATA_VOL":/v alpine chown -R 1000:1000 /v
-docker compose -f deployments/docker-compose.vmcp.yml up -d
+echo "==> [4/5] Verify Keycloak is running separately"
 wait_keycloak_ready
 
-echo "==> [5/6] Start the Virtual MCP Server (aggregates the 4 workloads)"
+echo "==> [5/5] Start the Virtual MCP Server (aggregates the 4 workloads)"
 thv vmcp validate --config deployments/vmcp.yaml
 mkdir -p logs
 nohup thv vmcp serve --config deployments/vmcp.yaml --host 0.0.0.0 --port "$VMCP_PORT" \
@@ -188,6 +182,7 @@ echo "vMCP endpoints (OIDC-protected, Keycloak realm mcp-demo / client mcp-gatew
 echo "  http://127.0.0.1:$VMCP_PORT/mcp      (unified endpoint, all 4 servers, tools prefixed mcp-<workload>_)"
 echo "  http://127.0.0.1:$VMCP_PORT/health   (vMCP health)"
 echo "  Keycloak   -> http://localhost:8080 (admin/admin), realm mcp-demo"
+echo "Start Keycloak separately: docker compose -f deployments/docker-compose.vmcp.yml up -d"
 echo ""
 echo "Mint a token (password grant, aud=mcp-gateway) and list tools:"
 echo "  TOKEN=\$(curl -s -X POST http://localhost:8080/realms/mcp-demo/protocol/openid-connect/token \\"

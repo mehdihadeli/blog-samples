@@ -5,7 +5,7 @@
 #   2. MCP workloads on the HOST via ToolHive: `thv rm` + `docker rm -f` +
 #      runconfig/status cleanup for every workload (same as start-vmcp.sh's
 #      clean_state), then remove the `mcp-vmcp` group.
-#   3. docker compose -f deployments/docker-compose.vmcp.yml down — Keycloak.
+#   3. The Keycloak Compose stack is managed separately.
 #
 # Usage:  ./scripts/stop-vmcp.sh
 set -euo pipefail
@@ -50,7 +50,4 @@ if [[ -n "$LOCAL_STATE" ]]; then
 fi
 thv group rm "$GROUP" >/dev/null 2>&1 || true
 
-echo "==> [3/3] Keycloak"
-docker compose -f deployments/docker-compose.vmcp.yml down
-echo "Stack stopped (vMCP, thv workloads, keycloak)."
-echo "To also remove the keycloak data volume (realm + signing keys): docker compose -f deployments/docker-compose.vmcp.yml down -v"
+echo "Compose stack was not changed. Stop it separately with: docker compose -f deployments/docker-compose.vmcp.yml down"

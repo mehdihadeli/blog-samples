@@ -4,8 +4,7 @@
 #   1. MCP workloads on the HOST via ToolHive: `thv rm` + `docker rm -f` +
 #      runconfig/status cleanup for every workload (same as start-toolhive.sh's
 #      clean_state).
-#   2. docker compose -f deployments/docker-compose.toolhive.yml down — the gateway
-#      (stock agentgateway) + Keycloak + observability stack.
+#   2. The Compose stack is managed separately.
 #
 # Usage:  ./scripts/stop-toolhive.sh
 set -euo pipefail
@@ -40,7 +39,4 @@ if [[ -n "$LOCAL_STATE" ]]; then
     "$LOCAL_STATE/toolhive/statuses/mcp-everything.json"
 fi
 
-echo "==> [2/2] Gateway + Keycloak + observability"
-docker compose -f deployments/docker-compose.toolhive.yml down
-echo "Stack stopped (gateway, keycloak, otel-collector, prometheus, tempo, loki, grafana, langfuse, phoenix)."
-echo "To also remove volumes (incl. the memory graph + gateway logs): docker compose -f deployments/docker-compose.toolhive.yml down -v"
+echo "Compose stack was not changed. Stop it separately with: docker compose -f deployments/docker-compose.toolhive.yml down"

@@ -1,21 +1,20 @@
 #!/usr/bin/env bash
 # start-toolhive.sh — start the full agentgateway MCP gateway sample.
 #
-# Three steps, all in one script:
+# Host setup steps; Compose runs separately:
 #   1. ToolHive (thv) MCP workloads on the HOST — memory :19001, fetch :19002,
 #      sequentialthinking :19003, everything :19004 (each proxied stdio ->
 #      Streamable HTTP). `everything` has no docker image, so ToolHive builds a
 #      container from the npm package on demand (npx:// protocol scheme).
 #   2. Loki docker log driver plugin (idempotent) — the gateway container's
 #      stdout streams to Loki through it (logging.driver=loki in compose).
-#   3. docker compose -f deployments/docker-compose.toolhive.yml up -d — the gateway
-#      (STOCK agentgateway image, no docker.sock) + Keycloak + observability
-#      (otel-collector, prometheus, tempo, loki, grafana, langfuse, phoenix).
+#   3. Start the Compose stack separately:
+#      `docker compose -f deployments/docker-compose.toolhive.yml up -d`.
 #
 # Usage:
-#   ./scripts/start-toolhive.sh             # start everything
+#   ./scripts/start-toolhive.sh             # start host MCP workloads
 #   ./scripts/start-toolhive.sh --verbose   # ... and tail the proxy logs
-#   ./scripts/stop-toolhive.sh              # stop everything
+#   ./scripts/stop-toolhive.sh              # stop host MCP workloads
 #
 # Prerequisites:
 #   - ToolHive:   winget install stacklok.thv (Windows) / brew install thv (macOS)
@@ -128,22 +127,6 @@ echo "==> [4/5] Verify workloads"
 thv list
 docker ps --format '{{.Names}}\t{{.Status}}' | grep -E 'mcp-(fetch|memory|sequentialthinking|everything)' || true
 
-echo "==> [5/5] Start gateway + Keycloak + observability"
-# Volume ownership: the STOCK agentgateway image does NOT create
-# /var/log/agentgateway, so a fresh `gateway-logs` named volume is
-# root-owned and the gateway (uid 65532, read-only rootfs) crashes at
-# startup with "failed to connect sqlite database". chown it to 65532 so it
-# can create its SQLite request-log DB. Keycloak (official image runs as
-# uid 1000) needs its persistent data dir writable for the same reason.
-GATEWAY_LOGS_VOL="docker-compose-toolhive_gateway-logs"
-KEYCLOAK_DATA_VOL="docker-compose-toolhive_keycloak-data"
-docker volume create "$GATEWAY_LOGS_VOL" >/dev/null 2>&1 || true
-docker volume create "$KEYCLOAK_DATA_VOL" >/dev/null 2>&1 || true
-MSYS_NO_PATHCONV=1 docker run --rm -v "$GATEWAY_LOGS_VOL":/v alpine chown -R 65532:65532 /v
-MSYS_NO_PATHCONV=1 docker run --rm -v "$KEYCLOAK_DATA_VOL":/v alpine chown -R 1000:1000 /v
-
-docker compose -f deployments/docker-compose.toolhive.yml up -d
-
 echo ""
 echo "Gateway endpoints:"
 echo "  :18080 /memory /fetch /thinking /mcp   (apiKey: sk-mcp-gateway-demo-key; /mcp multiplexes all 4 servers)"
@@ -154,7 +137,7 @@ echo "  Keycloak   -> http://localhost:8080 (admin/admin), realm mcp-demo"
 echo "  Langfuse   -> http://localhost:3001 (admin@langfuse.local / admin123)"
 echo "  Phoenix    -> http://localhost:6006"
 echo ""
-echo "Stop everything with:  ./scripts/stop-toolhive.sh"
+echo "Start the gateway stack separately: docker compose -f deployments/docker-compose.toolhive.yml up -d"
 echo "Then in VS Code Copilot: agent picker -> memory/fetch/thinking -> list your tools"
 if [[ "$VERBOSE" -eq 1 ]]; then
   echo ""

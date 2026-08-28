@@ -18,15 +18,13 @@
 #   2. Ensure the MCP server runners on the host (npx via Node, uvx via uv).
 #   3. Loki docker log driver plugin (idempotent) — infra containers log to
 #      Loki; the HOST gateway binary logs to logs/agentgateway-stdio.log.
-#   4. Keycloak + observability compose stack (deployments/docker-compose.stdio.yml —
-#      NO gateway service in this variant).
-#   5. Start the gateway binary DETACHED on the host with
+#   4. Start the gateway binary DETACHED on the host with
 #      deployments/config.stdio.yaml (nohup, pid in logs/agentgateway-stdio.pid)
 #      and wait for :18080.
 #
 # Usage:
-#   ./scripts/start-stdio.sh             # ensure runners + start everything
-#   ./scripts/stop-stdio.sh              # stop everything
+#   ./scripts/start-stdio.sh             # ensure runners + start gateway
+#   ./scripts/stop-stdio.sh              # stop gateway
 #
 # Prerequisites:
 #   - Docker (for the Keycloak + observability stack)
@@ -41,7 +39,7 @@
 #   The gateway binary is a host process — it dies when the parent terminal
 #   closes. This script starts it detached (nohup, pid file) and waits until
 #   the apiKey port answers before returning. Re-run it after a reboot to
-#   bring the gateway back without touching the compose stack.
+#   bring the gateway back without touching the infrastructure stack.
 #
 # Container math (verified 0 gateway containers — infra only):
 #   The gateway is a host process; each MCP server is a subprocess of it.
@@ -106,27 +104,7 @@ else
   echo "==> Docker loki log driver already installed."
 fi
 
-echo "==> [4/6] Keycloak + observability (no gateway service in this variant)"
-KEYCLOAK_DATA_VOL="docker-compose-stdio_keycloak-data"
-docker volume create "$KEYCLOAK_DATA_VOL" >/dev/null 2>&1 || true
-MSYS_NO_PATHCONV=1 docker run --rm -v "$KEYCLOAK_DATA_VOL":/v alpine chown -R 1000:1000 /v
-
-docker compose -f deployments/docker-compose.stdio.yml up -d
-
-echo "==> [5/6] Wait for Keycloak (the gateway fetches its JWKS at startup)"
-for i in $(seq 1 60); do
-  if docker inspect -f '{{.State.Health.Status}}' mcp-agentgateway-keycloak 2>/dev/null | grep -q healthy; then
-    echo "  Keycloak healthy"
-    break
-  fi
-  sleep 1
-done
-if ! docker inspect -f '{{.State.Health.Status}}' mcp-agentgateway-keycloak 2>/dev/null | grep -q healthy; then
-  echo "ERROR: Keycloak did not become healthy — check 'docker ps' / 'docker logs mcp-agentgateway-keycloak'" >&2
-  exit 1
-fi
-
-echo "==> [6/6] Start the host gateway binary (detached)"
+echo "==> [4/4] Start the host gateway binary (detached)"
 # Clean a stale daemon from a previous session.
 if [[ -f "$GATEWAY_PID" ]]; then
   kill -TERM "$(cat "$GATEWAY_PID")" >/dev/null 2>&1 || true
@@ -147,6 +125,7 @@ esac
 nohup "$GATEWAY_BIN" -f deployments/config.stdio.yaml >"$GATEWAY_LOG" 2>&1 &
 echo $! > "$GATEWAY_PID"
 echo "  agentgateway pid $(cat "$GATEWAY_PID") — log: $GATEWAY_LOG"
+echo "Start infrastructure separately: docker compose -f deployments/docker-compose.stdio.yml up -d"
 
 echo "  Waiting for :18080 (apiKey gateway)..."
 ready=0

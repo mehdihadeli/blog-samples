@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 # stop-stdio.sh — stop everything (inverse of scripts/start-stdio.sh).
 #
-#   kill -TERM the host gateway binary (deployments/config.stdio.yaml) +
-#   `compose down` on the Keycloak + observability stack
-#   (deployments/docker-compose.stdio.yml — no gateway service in this
-#   variant). The agentgateway binary and the pip
+#   kill -TERM the host gateway binary (deployments/config.stdio.yaml).
+#   The Keycloak + observability stack is managed separately. The agentgateway binary and the pip
 #   packages stay installed on the host for the next start.
 #
 # Usage:  ./scripts/stop-stdio.sh
@@ -21,7 +19,4 @@ fi
 # Fallback: kill any agentgateway we started with deployments/config.stdio.yaml.
 pkill -f "agentgateway -f deployments/config.stdio.yaml" >/dev/null 2>&1 || true
 
-echo "==> [2/2] Keycloak + observability stack"
-docker compose -f deployments/docker-compose.stdio.yml down
-echo "Stack stopped (keycloak, otel-collector, prometheus, tempo, loki, grafana, langfuse, phoenix)."
-echo "To also remove volumes (incl. keycloak data): docker compose -f deployments/docker-compose.stdio.yml down -v"
+echo "Compose stack was not changed. Stop it separately with: docker compose -f deployments/docker-compose.stdio.yml down"
