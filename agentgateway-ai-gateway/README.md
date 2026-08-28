@@ -15,6 +15,7 @@ observability (OpenTelemetry + Grafana LGTM + self-hosted Langfuse).
    console client        |      |  --MCP 3000--> mcp-tickets/catalog/customers   |
    (MCP + LLM + A2A)     |      |  --MCP 3000--> host ToolHive proxies           |
                          |      |        (everything :19101 via ToolHive)       |
+                         |      |        (sequentialthinking :19103 via ToolHive)|
                          |      |  --A2A 3001--> support-agent (.NET A2A)        |
                          |      |  --OTLP 4317--> otel-collector                 |
                          |      |                  |---> tempo (traces)          |
@@ -31,17 +32,18 @@ Rate limiting is LOCAL: the gateway holds in-memory token buckets (60 req/s +
 
 ## What each piece does
 
-| Piece                                                      | Role                                                                                                                                           |
-| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `agentgateway`                                             | The gateway: API-key LLM proxy (4000), browser OIDC/PKCE LLM proxy (4001), MCP multiplexer (3000), A2A proxy (3001), Admin UI (15000).         |
-| `Mcp.Tickets`, `Mcp.Catalog`, `Mcp.Customers`              | Three custom .NET MCP servers written with the MCP C# SDK (streamable HTTP at `/mcp`).                                                         |
-| `mcp-everything`                                           | External stdio reference MCP server, run on the host via ToolHive and proxied to the gateway as streamable HTTP (`scripts/start-mcps.sh`).     |
-| `Mcp.Time`                                                 | Compose-managed .NET MCP server exposing `get_current_time` over streamable HTTP at `mcp-time:8084/mcp`.                                       |
-| `SupportAgent`                                             | A .NET A2A agent (a2a-net) hosted behind the gateway's A2A route; it answers via DeepSeek through the gateway.                                 |
-| `SupportChat`                                              | A console client that talks to the LLM, MCP tools, and the A2A agent exclusively through the gateway.                                          |
-| `Keycloak`                                                 | Issues JWTs; the gateway validates them for MCP (`mcpAuthentication`) and uses claims for authorization.                                       |
-| `otel-collector`, `tempo`, `loki`, `prometheus`, `grafana` | LGTM observability stack: traces, logs, metrics, dashboards. The Collector `filelog` receiver reads Docker JSON logs and exports them to Loki. |
-| `langfuse` + `minio`                                       | Self-hosted LLM observability; collector OTLP traces land in Langfuse, with MinIO storing Langfuse event payloads.                             |
+| Piece                                                      | Role                                                                                                                                                                                         |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agentgateway`                                             | The gateway: API-key LLM proxy (4000), browser OIDC/PKCE LLM proxy (4001), MCP multiplexer (3000), A2A proxy (3001), Admin UI (15000).                                                       |
+| `Mcp.Tickets`, `Mcp.Catalog`, `Mcp.Customers`              | Three custom .NET MCP servers written with the MCP C# SDK (streamable HTTP at `/mcp`).                                                                                                       |
+| `mcp-everything`                                           | External stdio reference MCP server, run on the host via ToolHive and proxied to the gateway as streamable HTTP (`scripts/start-mcps.sh`).                                                   |
+| `mcp-sequentialthinking`                                   | External stdio Docker MCP server, run on the host via ToolHive and proxied to the gateway as streamable HTTP (`scripts/start-mcps.sh`).                                                      |
+| `Mcp.Time`                                                 | Compose-managed .NET MCP server exposing `get_current_time` over streamable HTTP at `mcp-time:8084/mcp`.                                                                                     |
+| `SupportAgent`                                             | A .NET A2A agent (a2a-net) hosted behind the gateway's A2A route; it answers via DeepSeek through the gateway.                                                                               |
+| `SupportChat`                                              | A console client that talks to the LLM, MCP tools, and the A2A agent exclusively through the gateway.                                                                                        |
+| `Keycloak`                                                 | Issues JWTs; the gateway validates them for MCP (`mcpAuthentication`) and uses claims for authorization.                                                                                     |
+| `otel-collector`, `tempo`, `loki`, `prometheus`, `grafana` | LGTM observability stack: traces, logs, metrics, dashboards. Grafana auto-provisions the official AgentGateway dashboard from `deploy/infra/grafana/dashboards/agentgateway-dashboard.json`. |
+| `langfuse` + `minio`                                       | Self-hosted LLM observability; collector OTLP traces land in Langfuse, with MinIO storing Langfuse event payloads.                                                                           |
 
 ## Feature coverage
 
@@ -90,20 +92,22 @@ unsupported infrastructure is already deployed.
 ```bash
 cp deploy/.env.example deploy/.env   # set DEEPSEEK_API_KEY
 ./scripts/start-mcps.sh
+docker compose -f deploy/docker-compose.yaml up -d --build
 ```
 
-Optional: start with per-user Envoy rate limiting (adds the ratelimit
-service + Redis and switches the gateway config to its remote-ratelimit
-variant):
+Optional: add per-user Envoy rate limiting (adds the ratelimit service + Redis
+and switches the gateway config to its remote-ratelimit variant):
 
 ```bash
-./scripts/start-mcps.sh --ratelimit
+docker compose -f deploy/docker-compose.yaml \
+  -f deploy/docker-compose.ratelimit.yaml up -d --build
 ```
 
-The script starts the external `everything` MCP server on the host with
-ToolHive, then brings up the whole compose stack (gateway, the four .NET
-MCP servers, Keycloak, observability). Stop everything with
-`./scripts/stop-mcps.sh`.
+The script starts only the external `everything` MCP server on the host with
+ToolHive. Docker Compose manages the gateway, the four .NET MCP servers,
+Keycloak, and observability. Stop the MCP proxy with
+`./scripts/stop-mcps.sh`; stop the Compose stack manually with the matching
+`docker compose ... down` command.
 
 Then run the console client from the host:
 
@@ -130,17 +134,89 @@ Rule of thumb:
 - Your own MCP, or any MCP that natively exposes streamable HTTP → **direct HTTP in compose**.
 - Trade-off to remember: ToolHive workloads are **not** managed by compose. If the terminal closes or the machine reboots, re-run `./scripts/start-mcps.sh` to bring the proxies back.
 
-## How the gateway authenticates (which endpoint uses what)
+## Security approaches and authentication
+
+### API keys first: LLM and MCP
+
+API keys are the simplest approach for clients that can securely store and
+send a bearer secret. AgentGateway supports strict `apiKey` authentication for
+both LLM and MCP configuration. The sample enables it for the LLM endpoint on
+`:4000`:
+
+```yaml
+llm:
+  policies:
+    apiKey:
+      mode: strict
+      keys:
+      - key: $ALICE_GATEWAY_KEY
+        metadata:
+          name: alice
+          user: alice
+```
+
+The same policy can protect `/mcp` when an MCP client supports API keys:
+
+```yaml
+mcp:
+  policies:
+    apiKey:
+      mode: strict
+      keys:
+      - key: $ALICE_GATEWAY_KEY
+        metadata:
+          name: alice
+          user: alice
+```
+
+This MCP API-key policy is documented as an option but is not enabled in this
+sample. The running `/mcp` endpoint uses Keycloak OAuth and JWT validation so
+the MCP Tool Playground can complete PKCE.
+
+For each user, team, or application, open **LLM > Virtual API Keys** in the
+AgentGateway Admin UI, select **New key**, enter a name such as `alice` or
+`customer-acme-app`, generate the key, and add metadata such as `user` and
+`tenant`. Store the generated secret in the consumer's secret manager; the UI
+masks it after creation. Create separate keys so each one can have its own
+allowed models, tool access, rate limit, budget, expiry, rotation, and
+revocation policy.
+
+![AgentGateway Virtual API Keys showing named consumer keys](/docs/agentgateway-virtual-api-keys.png)
+
+For many consumers, use AgentGateway `hybrid` configuration with persistent
+PostgreSQL storage. Keep stable routes and provider settings in YAML, and let
+the Admin UI or config API manage dynamic key resources. Protect the Admin UI
+as an operator surface. A separate authenticated provisioning service should
+own customer self-service, lifecycle, and audit workflows.
+
+API keys fit backend workers, CI jobs, and VS Code's built-in Custom Endpoint
+provider. They are bearer credentials, not proof of stronger security by
+themselves. Use HTTPS, secret storage, strict mode, narrow permissions,
+rotation, expiration, and revocation. Never send `DEEPSEEK_API_KEY` to a
+consumer.
+
+### OAuth 2.0 PKCE when client supports browser login
+
+OAuth Authorization Code with PKCE fits browser-based and interactive clients.
+The client opens the identity-provider login, uses the code verifier to stop
+authorization-code interception, stores short-lived tokens, and sends the JWT
+to the gateway. AgentGateway uses `oidc` for browser LLM routes and
+`mcpAuthentication` for MCP OAuth discovery and JWT validation. VS Code's MCP
+integration can use this flow when the MCP server advertises OAuth metadata;
+its built-in Custom Endpoint LLM flow uses an API key. A custom VS Code LLM
+provider extension is needed for PKCE-based LLM access.
+
+### How the gateway authenticates (which endpoint uses what)
 
 | Endpoint                    | Auth mechanism                                                                                                                                                                                                             | Configured in                              |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
 | LLM gateway `:4000`         | **API key** - virtual keys (`sk-alice-*`, `sk-bob-*`); `metadata.user` feeds metrics, logs, rate limits                                                                                                                    | `llm.policies.apiKey` (mode strict)        |
 | LLM browser gateway `:4001` | **OIDC Authorization Code + PKCE** through Keycloak; browser session cookie protects `/v1` requests. Separate from API-key `:4000`.                                                                                        | `routes[].policies.oidc`                   |
-| MCP gateway `:3000`         | **OAuth2/OIDC JWT from Keycloak** - `mcpAuthentication` validates tokens and proxies authorization metadata/client registration; browser flows use **PKCE** via `agentgateway-browser`; `SupportChat` uses password grant. | `mcp.policies.mcpAuthentication`           |
+| MCP gateway `:3000`         | **API key or OAuth2/OIDC JWT** - strict `apiKey` is available for clients that support bearer keys; this sample uses `mcpAuthentication` with Keycloak, PKCE browser discovery, and password grant for `SupportChat`. | `mcp.policies.apiKey` or `mcp.policies.mcpAuthentication` |
 | A2A gateway `:3001`         | **OAuth2/OIDC JWT from Keycloak** - same JWKS as MCP; browser flows use **PKCE** and the public `agentgateway-browser` client; `SupportChat` uses the password grant for demo convenience                                  | `routes[].policies.jwtAuth`                |
 | Admin UI `:15000`           | None by default (local admin interface); optional OIDC policy to lock it down                                                                                                                                              | `config.adminAddr`, optional `ui.policies` |
 
-So: `:4000` remains API-key protected, `:4001` adds browser OIDC/PKCE for LLM consumers, and MCP/A2A use Keycloak JWT/OAuth flows. Clients use one explicit authentication model per endpoint.
+So: `:4000` uses API keys, `:4001` adds browser OIDC/PKCE for LLM consumers, and `/mcp` uses Keycloak JWT/OAuth in this sample while also supporting an API-key alternative. Clients use one explicit authentication model per endpoint.
 
 ## Try it
 
@@ -152,7 +228,7 @@ So: `:4000` remains API-key protected, `:4001` adds browser OIDC/PKCE for LLM co
 | A2A agent card          | `curl http://localhost:3001/.well-known/agent-card.json -H "Authorization: Bearer <keycloak-token>"`                                                                                                              |
 | Admin UI                | [http://localhost:15000/ui/](http://localhost:15000/ui/) - includes the CEL playground at `/ui/cel/` and the MCP Tool Playground                                                                                  |
 | Keycloak                | [http://localhost:8080](http://localhost:8080) (admin / admin)                                                                                                                                                    |
-| Grafana                 | [http://localhost:13000](http://localhost:13000) (admin / admin) - dashboard "AgentGateway", Tempo for traces, Loki for logs                                                                                      |
+| Grafana                 | [http://localhost:13000](http://localhost:13000) (admin / admin) - official AgentGateway dashboard, Tempo for traces, Loki for logs                                                                               |
 
 ### Authorization demo
 
@@ -197,8 +273,8 @@ config:
 ```
 
 Open `http://localhost:15000/ui/llm/analytics` after sending an LLM request to
-view token usage and cost. The concrete `deepseek-chat` and
-`deepseek-reasoner` models also apply an LLM transformation that caps
+view token usage and cost. The concrete `deepseek-v4-flash` and
+`deepseek-v4-pro` models also apply an LLM transformation that caps
 `max_tokens` at 1024:
 
 ```yaml
@@ -233,9 +309,9 @@ eviction. MCP requests use three attempts with 500 ms backoff for 429, 500, and
 
 ### Automated smoke test
 
-`./scripts/verify.sh` runs end-to-end checks against the running stack
-(LLM auth, MCP auth, tool multiplexing, CEL authorization, guardrails, rate
-limits, A2A card, metrics):
+`./scripts/verify.sh` is the fast operational smoke test for a running stack.
+It checks LLM and MCP authentication, tool multiplexing, CEL authorization,
+guardrails, rate limits, the A2A card, and metrics:
 
 ```bash
 ./scripts/verify.sh
@@ -244,17 +320,32 @@ limits, A2A card, metrics):
 It prints PASS/FAIL per check and exits non-zero if anything fails. Read the
 header of the script for the mapping of each check to a gateway feature.
 
-There is also a .NET test project using **xUnit v3** and **Shouldly**:
+The C# suite provides deeper integration coverage using **xUnit v3** and
+**Shouldly**. It is the right place for typed assertions and provider-backed
+LLM checks, while `verify.sh` remains a dependency-light health check:
 
 ```bash
 dotnet test tests/AgentGateway.Samples.Tests/AgentGateway.Samples.Tests.csproj
 ```
 
-The tests are integration tests that call the running gateway. When the Docker
-stack is down they skip with a reason, so CI can still run the project without
-failing. With the stack up they cover LLM virtual-key auth, MCP multiplexing,
-MCP tool-level authorization (alice vs bob), A2A JWT auth, request guardrails,
-local rate limiting, and the Admin UI / metrics endpoints.
+The tests call the running gateway. When the Docker stack is down they skip
+with a reason, so CI can still run the project without failing. With the stack
+up they cover LLM virtual-key auth, MCP multiplexing, MCP tool-level
+authorization (alice vs bob), A2A JWT auth, request guardrails, local rate
+limiting, and the Admin UI / metrics endpoints.
+
+The concrete DeepSeek route theory calls each configured provider model. Load
+the key from `deploy/.env` into the current process, then run the LLM test
+module directly with the xUnit v3 runner:
+
+```powershell
+$env:DEEPSEEK_API_KEY = (Get-Content deploy/.env | Where-Object { $_ -match '^DEEPSEEK_API_KEY=' } | ForEach-Object { $_.Substring('DEEPSEEK_API_KEY='.Length) })
+dotnet exec tests/AgentGateway.Samples.Tests/bin/Debug/net10.0/AgentGateway.Samples.Tests.dll --filter-class AgentGateway.Samples.Tests.LlmGatewayTests
+```
+
+This validates `deepseek-v4-flash`, `deepseek-v4-pro`, and
+`deepseek-v4-flash-vision-exp` through AgentGateway. The provider key is read
+by the test process and is never printed or used as the gateway client key.
 
 ### Manual walkthrough in the Admin UI
 
@@ -266,7 +357,7 @@ local rate limiting, and the Admin UI / metrics endpoints.
 3. **LLM > Client Setup** - pick the `deepseek-smart` model and `sk-alice-*` key; copy a ready-to-run curl snippet and run it (validates virtual keys + the virtual model).
 4. **CEL playground** at `/ui/cel/` - paste the authorization rule `'mcp.tool.target == "customers" && "support-admin" in jwt.realm_access.roles'` and inspect the request context; also try `default(jwt.sub, "anonymous")` for the rate-limit descriptor.
 5. **MCP > Tool Playground** - pick a target (e.g. `tickets`), hit **Apply CORS**, then log in via Keycloak (PKCE flow with the `agentgateway-browser` client). You can now call e.g. `tickets_tickets_list` from the browser. Log in as `bob` and try `customers_customers_get` - the gateway returns 403 because of the CEL rule.
-6. **MCP > connected targets** - confirm all 6 targets (tickets, catalog, customers, everything, time, and OpenAPI Petstore) are up.
+6. **MCP > connected targets** - confirm all 7 targets (tickets, catalog, customers, everything, sequentialthinking, time, and OpenAPI Petstore) are up.
 7. **A2A** - the agent card endpoint (`/.well-known/agent-card.json`) on port 3001 now requires the same Keycloak JWT. Message requests use `/v1/message:send`; an unauthenticated request returns 401.
 8. **Logs/Traffic** - the UI surfaces recent traffic and gateway logs; cross-check the same request IDs in Grafana (traces, logs) and Langfuse (LLM traces).
 
@@ -274,9 +365,8 @@ local rate limiting, and the Admin UI / metrics endpoints.
 
 ```text
 scripts/
-  start-mcps.sh                 # ToolHive MCP (everything) + compose up
-                                # (--ratelimit adds the Envoy override)
-  stop-mcps.sh                  # inverse: stop workloads + compose down
+  start-mcps.sh                 # start ToolHive MCPs (everything, sequentialthinking)
+  stop-mcps.sh                  # stop ToolHive MCPs (everything, sequentialthinking)
   verify.sh                     # end-to-end smoke tests against the running stack
                                 # (LLM/MCP auth, CEL authz, guardrails, 429, A2A)
 deploy/

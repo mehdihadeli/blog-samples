@@ -1,6 +1,5 @@
 using System.Net;
 using System.Net.Http.Json;
-using System.Text;
 using System.Text.Json;
 using Shouldly;
 using Xunit;
@@ -89,8 +88,50 @@ public sealed class LlmGatewayTests : GatewayTestBase
             .ToList();
 
         modelIds.ShouldContain("deepseek-smart");
-        modelIds.ShouldContain("deepseek-chat");
-        modelIds.ShouldContain("deepseek-reasoner");
+        modelIds.ShouldContain("deepseek-v4-flash");
+        modelIds.ShouldContain("deepseek-v4-pro");
+        modelIds.ShouldContain("deepseek-v4-flash-vision-exp");
+    }
+
+    [Theory]
+    [InlineData("deepseek-v4-flash")]
+    [InlineData("deepseek-v4-pro")]
+    [InlineData("deepseek-v4-flash-vision-exp")]
+    public async Task Concrete_deepseek_model_works_with_compose_env_provider_key(string model)
+    {
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("DEEPSEEK_API_KEY")))
+        {
+            Assert.Skip("DEEPSEEK_API_KEY is not set; provider-backed integration test skipped.");
+        }
+
+        await SkipIfNotReachableAsync(Settings.Gateway.LlmUrl, "LLM gateway");
+
+        using var client = new HttpClient();
+        client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue(
+                "Bearer",
+                Settings.ApiKeys["Alice"]
+            );
+
+        var response = await client.PostAsJsonAsync(
+            $"{Settings.Gateway.LlmUrl.TrimEnd('/')}/chat/completions",
+            new
+            {
+                model,
+                messages = new[]
+                {
+                    new { role = "user", content = "Reply with one short word: ready" },
+                },
+                max_tokens = 16,
+            },
+            CancellationToken
+        );
+
+        var body = await response.Content.ReadAsStringAsync(CancellationToken);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK, body);
+
+        using var json = JsonDocument.Parse(body);
+        json.RootElement.GetProperty("choices").GetArrayLength().ShouldBeGreaterThan(0);
     }
 
     [Fact]

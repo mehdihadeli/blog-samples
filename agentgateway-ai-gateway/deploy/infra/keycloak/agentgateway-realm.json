@@ -33,6 +33,32 @@
       ]
     },
     {
+      "clientId": "agentgateway-vscode",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["vscode://agentgateway.vscode-provider/*"],
+      "webOrigins": ["vscode://agentgateway.vscode-provider"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
+      "protocolMappers": [
+        {
+          "name": "agentgateway-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "agentgateway",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false"
+          }
+        }
+      ]
+    },
+    {
       "clientId": "agentgateway-browser",
       "enabled": true,
       "protocol": "openid-connect",

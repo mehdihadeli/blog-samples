@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # verify.sh - smoke-test the running AgentGateway stack end to end.
 #
-# Run AFTER `./scripts/start-mcps.sh` and once Keycloak is healthy.
+# Run AFTER starting MCPs with `./scripts/start-mcps.sh`, starting Docker
+# Compose manually, and waiting for Keycloak to become healthy.
 # Every check prints PASS/FAIL and sets the exit code (fails if any check
 # fails). The script needs curl, python3 (JSON parsing), and optionally jq.
 #
@@ -109,9 +110,10 @@ rm -f "$TOOLS_FILE"
 if echo "$TOOL_NAMES" | grep -q 'tickets_tickets_list' \
    && echo "$TOOL_NAMES" | grep -q 'catalog_catalog_search' \
    && echo "$TOOL_NAMES" | grep -q 'everything_echo' \
+  && echo "$TOOL_NAMES" | grep -q 'sequentialthinking_sequentialthinking' \
   && echo "$TOOL_NAMES" | grep -q 'time_get_current_time' \
   && echo "$TOOL_NAMES" | grep -q 'openapi_getInventory'; then
-  ok "tools/list shows prefixed tools from all 6 targets ($(echo "$TOOL_NAMES" | wc -w) tools)"
+  ok "tools/list shows prefixed tools from all 7 targets ($(echo "$TOOL_NAMES" | wc -w) tools)"
 else
   bad "tools/list missing expected prefixed tools; got: $TOOL_NAMES"
 fi

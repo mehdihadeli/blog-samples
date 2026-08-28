@@ -99,28 +99,34 @@ llm:
               value: "apiKey.user"
 
   models:
-    - name: deepseek-chat
+    - name: deepseek-v4-flash
       visibility: public
       provider: deepseek
       params:
         apiKey: "$DEEPSEEK_API_KEY"
-        model: deepseek-chat
+        model: deepseek-v4-flash
       transformation:
         max_tokens: "min(llmRequest.max_tokens, 1024)"
-    - name: deepseek-reasoner
+    - name: deepseek-v4-pro
       visibility: public
       provider: deepseek
       params:
         apiKey: "$DEEPSEEK_API_KEY"
-        model: deepseek-reasoner
+        model: deepseek-v4-pro
       transformation:
         max_tokens: "min(llmRequest.max_tokens, 1024)"
-    - name: deepseek-chat-backup
+    - name: deepseek-v4-flash-vision-exp
+      visibility: public
+      provider: deepseek
+      params:
+        apiKey: "$DEEPSEEK_API_KEY"
+        model: deepseek-v4-flash-vision-exp
+    - name: deepseek-v4-flash-backup
       visibility: internal
       provider: deepseek
       params:
         apiKey: "$DEEPSEEK_API_KEY"
-        model: deepseek-chat
+        model: deepseek-v4-flash
       health:
         eviction:
           consecutiveFailures: 1
@@ -133,29 +139,30 @@ llm:
       routing:
         weighted:
           targets:
-            - model: deepseek-chat
+            - model: deepseek-v4-flash
               weight: 70
-            - model: deepseek-reasoner
+            - model: deepseek-v4-pro
               weight: 30
     - name: deepseek-resilient
       routing:
         failover:
           targets:
-            - model: deepseek-chat
+            - model: deepseek-v4-flash
               priority: 0
-            - model: deepseek-chat-backup
+            - model: deepseek-v4-flash-backup
               priority: 1
 
 # ---------------------------------------------------------------------------
 # MCP GATEWAY (port 3000)
 #
-# Multiplexes six MCP targets behind one endpoint. Every tool gets the
+# Multiplexes seven MCP targets behind one endpoint. Every tool gets the
 # `<target>_<tool>` prefix (e.g. `tickets_tickets_list`). Keycloak JWTs are
 # required and CEL rules authorize each tool call.
 #
 # tickets/catalog/customers/time run as containers in the compose stack;
-# everything runs on the HOST via ToolHive (scripts/start-mcps.sh) and is
-# reached through host.docker.internal (extra_hosts in compose).
+# everything and sequentialthinking run on the HOST via ToolHive
+# (scripts/start-mcps.sh) and are reached through host.docker.internal
+# (extra_hosts in compose).
 # ---------------------------------------------------------------------------
 mcp:
   statefulMode: stateless
@@ -204,6 +211,7 @@ mcp:
         - 'mcp.tool.target == "catalog"'
         - 'mcp.tool.target == "time"'
         - 'mcp.tool.target == "everything"'
+        - 'mcp.tool.target == "sequentialthinking"'
         - 'mcp.tool.target == "customers" && "support-admin" in jwt.realm_access.roles'
         - 'mcp.tool.target == "openapi"'
 
@@ -212,6 +220,9 @@ mcp:
       backoff: 500ms
       codes: [429, 500, 503]
 
+    # Shadow-copy 10% of MCP requests to a side-effect-free sink for demos,
+    # debugging, evaluation, or audit pipelines. The mirror is independent
+    # of the live MCP response and is not required for normal MCP traffic.
     requestMirror:
       backend:
         host: mcp-mirror:5678
@@ -244,9 +255,14 @@ mcp:
     #     --proxy-port 19101 --transport stdio --proxy-mode streamable-http
     #   thv run docker.io/mcp/time \
     #     --proxy-port 19102 --transport stdio --proxy-mode streamable-http
+    #   thv run mcp/sequentialthinking \
+    #     --proxy-port 19103 --transport stdio --proxy-mode streamable-http
     - name: everything
       mcp:
         host: http://host.docker.internal:19101/mcp
+    - name: sequentialthinking
+      mcp:
+        host: http://host.docker.internal:19103/mcp
     - name: time
       mcp:
         host: http://mcp-time:8084/mcp
@@ -303,8 +319,8 @@ routes:
           name: deepseek-browser
           provider:
             openAI:
-              model: deepseek-chat
-          hostOverride: api.deepseek.com:443
+              model: deepseek-v4-flash
+          hostOverride: $DEEPSEEK_ENDPOINT
           policies:
             backendAuth:
               key: "$DEEPSEEK_API_KEY"

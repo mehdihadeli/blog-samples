@@ -3,7 +3,7 @@
 # It calls OpenAI's moderation endpoint before the provider request.
 llm:
   models:
-    - name: deepseek-chat
+    - name: deepseek-v4-flash
       guardrails:
         request:
           - openAIModeration:
@@ -13,7 +13,7 @@ llm:
                   key: "$OPENAI_API_KEY"
                 rejection:
                   body: "Content blocked by moderation policy"
-    - name: deepseek-reasoner
+    - name: deepseek-v4-pro
       guardrails:
         request:
           - openAIModeration:

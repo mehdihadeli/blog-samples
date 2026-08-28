@@ -25,6 +25,11 @@ receivers:
 
 processors:
   batch: {}
+  resource/logs:
+    attributes:
+      - key: service.name
+        value: agentgateway
+        action: upsert
 
 exporters:
   debug:
@@ -58,5 +63,5 @@ service:
       exporters: [otlp/tempo, otlphttp/langfuse, debug]
     logs:
       receivers: [filelog/docker]
-      processors: [batch]
+      processors: [resource/logs, batch]
       exporters: [otlphttp/loki, debug]

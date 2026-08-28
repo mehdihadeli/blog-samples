@@ -2,13 +2,13 @@
   "providers": {
     "deepseek": {
       "models": {
-        "deepseek-chat": {
+        "deepseek-v4-flash": {
           "rates": {
             "input": "0.27",
             "output": "1.10"
           }
         },
-        "deepseek-reasoner": {
+        "deepseek-v4-pro": {
           "rates": {
             "input": "0.55",
             "output": "2.19"
