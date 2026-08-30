@@ -15,6 +15,8 @@ var mcpCustomers = builder
     .AddProject<Projects.Mcp_Customers>("mcp-customers")
     .WithHttpEndpoint(port: 8083);
 
+var mcpTime = builder.AddProject<Projects.Mcp_Time>("mcp-time").WithHttpEndpoint(port: 8084);
+
 // The A2A agent. AgentGateway fronts it on port 3001.
 var supportAgent = builder
     .AddProject<Projects.SupportAgent>("support-agent")

@@ -25,12 +25,12 @@
 #   ./scripts/start-mcps.sh --verbose  # ... and tail the proxy logs
 #
 # Start the gateway stack separately with Docker Compose from the repository
-# root. See deploy/docker-compose.yaml and deploy/docker-compose.ratelimit.yaml.
+# root. See deployments/docker-compose.yaml and deployments/docker-compose.ratelimit.yaml.
 #
 # Prerequisites:
 #   - ToolHive: winget install stacklok.thv (Windows) / brew install thv (macOS)
 #   - The compose project name is `agentgateway-ai-gateway` (set in
-#     deploy/docker-compose.yaml) so the volume chowns below work.
+#     deployments/docker-compose.yaml) so the volume chowns below work.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -79,16 +79,14 @@ echo "==> [2/4] Remove stale workload state (containers may be gone after reboot
 clean_state
 
 echo "==> [3/4] Start MCP workloads on the host (ToolHive proxies)"
-# everything - the reference MCP server. ToolHive's npx://
-# protocol scheme builds a container from the npm package on demand
-# (see https://docs.stacklok.com/toolhive/guides-cli/run-mcp-servers).
-thv run npx://@modelcontextprotocol/server-everything@latest \
+# everything - the reference MCP server from Docker Hub.
+thv run docker.io/mcp/everything:latest \
   --name mcp-everything \
   --host 0.0.0.0 --proxy-port 19101 \
   --transport stdio --proxy-mode streamable-http \
   --isolate-network=false
-# sequentialthinking - the Docker-hosted stdio MCP server.
-thv run mcp/sequentialthinking \
+# sequentialthinking - the Docker-hosted stdio MCP server from Docker Hub.
+thv run docker.io/mcp/sequentialthinking:latest \
   --name mcp-sequentialthinking \
   --host 0.0.0.0 --proxy-port 19103 \
   --transport stdio --proxy-mode streamable-http \

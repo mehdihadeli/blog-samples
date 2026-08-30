@@ -1,0 +1,51 @@
+global:
+  # Pull metrics from configured scrape targets every 15 seconds.
+  scrape_interval: 15s
+  # Evaluate recording and alerting rules at the same cadence.
+  evaluation_interval: 15s
+  # Identify the Prometheus instance in stored time series.
+  external_labels:
+    collector: otel-collector
+
+# Scrape jobs define pull-based metric sources. Prometheus resolves service
+# names through the Docker Compose network; no container IPs are hardcoded.
+scrape_configs:
+  # AgentGateway's native Prometheus endpoint.
+  - job_name: agentgateway
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["agentgateway:15020"]
+  # Collector self-observability metrics.
+  - job_name: otel-collector
+    static_configs:
+      - targets: ["otel-collector:8888"]
+
+  # Pull-based application metrics exported by the Collector.
+  # This is the default Collector integration path.
+  - job_name: otel-collector-app
+    static_configs:
+      - targets: ["otel-collector:8889"]
+    metric_relabel_configs:
+      - target_label: integration
+        replacement: application-metrics
+
+  # Push-based alternative. Disable the scrape job above when using this
+  # mode, enable --web.enable-otlp-receiver on the Prometheus container, and
+  # enable otlphttp/prometheus plus metrics/push in otel-collector.yaml.
+  # Prometheus then receives metrics at /api/v1/otlp instead of scraping :8889.
+
+  - job_name: node-exporter
+    static_configs:
+      - targets: ["node-exporter:9100"]
+    metric_relabel_configs:
+      - target_label: origin_prometheus
+        replacement: prometheus
+      - target_label: integration
+        replacement: node-host-metrics
+
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]
+    metric_relabel_configs:
+      - target_label: integration
+        replacement: container-metrics

@@ -1,0 +1,37 @@
+# yaml-language-server: $schema=https://agentgateway.dev/schema/config
+# Run with a local upstream: python -m http.server 8080
+binds:
+  - port: 4100
+    listeners:
+      - protocol: HTTP
+        routes:
+          - name: delay-random
+            matches:
+              - path:
+                  pathPrefix: /random
+            policies:
+              delay:
+                duration: "random() < 0.1 ? 2000 : 0"
+            backends:
+              - host: 127.0.0.1:8080
+          - name: delay-header
+            matches:
+              - path:
+                  pathPrefix: /header
+            policies:
+              delay:
+                duration: 'request.headers["x-chaos"] == "1" ? 500 : 0'
+            backends:
+              - host: 127.0.0.1:8080
+          - name: abort-random
+            matches:
+              - path:
+                  pathPrefix: /abort
+            policies:
+              directResponse:
+                conditional:
+                  - condition: random() < 0.1
+                    status: 503
+                    body: injected fault
+            backends:
+              - host: 127.0.0.1:8080

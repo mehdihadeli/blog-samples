@@ -1,0 +1,40 @@
+openapi: 3.0.3
+info:
+  title: Sample Petstore API
+  version: 1.0.0
+servers:
+  - url: /
+paths:
+  /api/v3/store/inventory:
+    get:
+      operationId: getInventory
+      summary: Returns pet inventories by status.
+      responses:
+        "200":
+          description: Inventory counts by status.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: integer
+  /api/v3/pet/{petId}:
+    get:
+      operationId: getPetById
+      summary: Find a pet by ID.
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: A pet.
+          content:
+            application/json:
+              schema:
+                type: object
+        "404":
+          description: Pet not found.

@@ -1,0 +1,83 @@
+{
+  "name": "vscode-provider",
+  "displayName": "AgentGateway DeepSeek Provider",
+  "description": "Use the project AgentGateway DeepSeek route from VS Code with Keycloak PKCE.",
+  "version": "0.1.0",
+  "publisher": "agentgateway",
+  "license": "MIT",
+  "categories": [
+    "AI",
+    "Chat"
+  ],
+  "engines": {
+    "vscode": "^1.106.0"
+  },
+  "activationEvents": [
+    "onStartupFinished",
+    "onUri"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languageModelChatProviders": [
+      {
+        "vendor": "agentgateway-deepseek",
+        "displayName": "AgentGateway DeepSeek",
+        "managementCommand": "agentgateway.login"
+      }
+    ],
+    "commands": [
+      {
+        "command": "agentgateway.login",
+        "title": "AgentGateway: Sign In"
+      },
+      {
+        "command": "agentgateway.logout",
+        "title": "AgentGateway: Sign Out"
+      },
+      {
+        "command": "agentgateway.openSettings",
+        "title": "AgentGateway: Open Settings"
+      },
+      {
+        "command": "agentgateway.showLogs",
+        "title": "AgentGateway: Show Logs"
+      }
+    ],
+    "configuration": {
+      "title": "AgentGateway DeepSeek",
+      "properties": {
+        "agentgateway.baseUrl": {
+          "type": "string",
+          "default": "http://localhost:14002/v1",
+          "description": "OpenAI-compatible AgentGateway LLM route."
+        },
+        "agentgateway.issuer": {
+          "type": "string",
+          "default": "http://localhost:8080/realms/agentgateway",
+          "description": "Keycloak realm issuer URL."
+        },
+        "agentgateway.clientId": {
+          "type": "string",
+          "default": "agentgateway-vscode",
+          "description": "Public Keycloak client ID configured for this extension."
+        },
+        "agentgateway.scope": {
+          "type": "string",
+          "default": "openid profile email",
+          "description": "OIDC scopes requested during sign-in."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.106.0",
+    "@vscode/vsce": "^3.2.0",
+    "typescript": "^5.9.0"
+  }
+}

@@ -42,7 +42,7 @@ Rate limiting is LOCAL: the gateway holds in-memory token buckets (60 req/s +
 | `SupportAgent`                                             | A .NET A2A agent (a2a-net) hosted behind the gateway's A2A route; it answers via DeepSeek through the gateway.                                                                               |
 | `SupportChat`                                              | A console client that talks to the LLM, MCP tools, and the A2A agent exclusively through the gateway.                                                                                        |
 | `Keycloak`                                                 | Issues JWTs; the gateway validates them for MCP (`mcpAuthentication`) and uses claims for authorization.                                                                                     |
-| `otel-collector`, `tempo`, `loki`, `prometheus`, `grafana` | LGTM observability stack: traces, logs, metrics, dashboards. Grafana auto-provisions the official AgentGateway dashboard from `deploy/infra/grafana/dashboards/agentgateway-dashboard.json`. |
+| `otel-collector`, `tempo`, `loki`, `prometheus`, `grafana` | LGTM observability stack: traces, logs, metrics, dashboards. Grafana auto-provisions the official AgentGateway dashboard from `deployments/infra/grafana/dashboards/agentgateway-dashboard.json`. |
 | `langfuse` + `minio`                                       | Self-hosted LLM observability; collector OTLP traces land in Langfuse, with MinIO storing Langfuse event payloads.                                                                           |
 
 ## Feature coverage
@@ -51,23 +51,23 @@ The runnable Compose deployment covers the following features end to end:
 
 | Feature                                                                | Sample status                                        | Main location                                |
 | ---------------------------------------------------------------------- | ---------------------------------------------------- | -------------------------------------------- |
-| Weighted virtual models                                                | Implemented and smoke-tested                         | `deploy/agentgateway-config.yaml`            |
-| Virtual API keys and per-user labels                                   | Implemented and smoke-tested                         | `deploy/agentgateway-config.yaml`            |
-| OIDC/PKCE for browser LLM access                                       | Implemented and manually verified                    | `deploy/agentgateway-config.yaml`            |
-| MCP federation, streamable HTTP, Keycloak JWT, CEL authorization       | Implemented and smoke-tested                         | `deploy/agentgateway-config.yaml`            |
-| A2A proxying and streaming                                             | Implemented and smoke-tested                         | `deploy/agentgateway-config.yaml`            |
-| Regex and builtin PII guardrails                                       | Implemented and smoke-tested                         | `deploy/agentgateway-config.yaml`            |
-| Local request limits and optional remote per-user request/token limits | Implemented and smoke-tested                         | `deploy/agentgateway-config*.yaml`           |
-| Model cost catalog and `max_tokens` transformation                     | Implemented; inspect through Admin UI                | `deploy/costs/catalog.json`                  |
-| OpenAPI-to-MCP Petstore target                                         | Implemented; inspect through MCP UI or MCP Inspector | `deploy/openapi/petstore.yaml`               |
-| MCP retries and request mirroring                                      | Implemented; mirror sink is opt-in-safe              | `deploy/agentgateway-config*.yaml`           |
-| Priority failover and health eviction                                  | Implemented; use `deepseek-resilient`                | `deploy/agentgateway-config*.yaml`           |
-| OpenTelemetry, Prometheus, Grafana, Loki, Tempo, Langfuse              | Implemented and manually verified                    | `deploy/docker-compose.yaml`                 |
+| Weighted virtual models                                                | Implemented and smoke-tested                         | `deployments/agentgateway-config.yaml`            |
+| Virtual API keys and per-user labels                                   | Implemented and smoke-tested                         | `deployments/agentgateway-config.yaml`            |
+| OIDC/PKCE for browser LLM access                                       | Implemented and manually verified                    | `deployments/agentgateway-config.yaml`            |
+| MCP federation, streamable HTTP, Keycloak JWT, CEL authorization       | Implemented and smoke-tested                         | `deployments/agentgateway-config.yaml`            |
+| A2A proxying and streaming                                             | Implemented and smoke-tested                         | `deployments/agentgateway-config.yaml`            |
+| Regex and builtin PII guardrails                                       | Implemented and smoke-tested                         | `deployments/agentgateway-config.yaml`            |
+| Local request limits and optional remote per-user request/token limits | Implemented and smoke-tested                         | `deployments/agentgateway-config*.yaml`           |
+| Model cost catalog and `max_tokens` transformation                     | Implemented; inspect through Admin UI                | `deployments/costs/catalog.json`                  |
+| OpenAPI-to-MCP Petstore target                                         | Implemented; inspect through MCP UI or MCP Inspector | `deployments/openapi/petstore.yaml`               |
+| MCP retries and request mirroring                                      | Implemented; mirror sink is opt-in-safe              | `deployments/agentgateway-config*.yaml`           |
+| Priority failover and health eviction                                  | Implemented; use `deepseek-resilient`                | `deployments/agentgateway-config*.yaml`           |
+| OpenTelemetry, Prometheus, Grafana, Loki, Tempo, Langfuse              | Implemented and manually verified                    | `deployments/docker-compose.yaml`                 |
 | Conditional policies and fault injection                               | Article pattern only                                 | See article production section               |
-| Prompt enrichment                                                      | Implemented on browser LLM route                     | `deploy/agentgateway-config*.yaml`           |
-| Fault injection                                                        | Optional standalone config                           | `deploy/optional/fault-injection.yaml`       |
-| ExtMCP guardrails                                                      | Optional Kubernetes policy fragment                  | `deploy/optional/mcp-guardrails-policy.yaml` |
-| OpenAI external moderation                                             | Optional policy fragment                             | `deploy/optional/moderation-policy.yaml`     |
+| Prompt enrichment                                                      | Implemented on browser LLM route                     | `deployments/agentgateway-config*.yaml`           |
+| Fault injection                                                        | Optional standalone config                           | `deployments/optional/fault-injection.yaml`       |
+| ExtMCP guardrails                                                      | Optional Kubernetes policy fragment                  | `deployments/optional/mcp-guardrails-policy.yaml` |
+| OpenAI external moderation                                             | Optional policy fragment                             | `deployments/optional/moderation-policy.yaml`     |
 | Embeddings, Responses, Messages, rerank, token-counting APIs           | Article pattern only                                 | See article production section               |
 | Kubernetes catalog deployment and PostgreSQL HA                        | Article pattern only                                 | See article production section               |
 | Native VS Code, GitHub Copilot, or Claude Code integration             | No first-class official recipe identified            | See article production section               |
@@ -76,13 +76,14 @@ The runnable Compose deployment covers the following features end to end:
 official reference and configuration shape, but this repository does not
 enable or test it in the default sample. Optional policy fragments require
 external credentials, a Kubernetes control plane, or a protocol-specific
-service and are documented in `deploy/optional/`. This boundary keeps the
+service and are documented in `deployments/optional/`. This boundary keeps the
 quick-start stack reproducible and prevents documentation from implying
 unsupported infrastructure is already deployed.
 
 ## Prerequisites
 
 - Docker + Docker Compose
+- .NET Aspire (optional, for local orchestration of .NET projects)
 - [ToolHive](https://github.com/stacklok/toolhive) (`winget install stacklok.thv` on Windows / `brew install thv` on macOS)
 - .NET SDK 10 (only if you run the console client / build locally)
 - A DeepSeek API key
@@ -90,17 +91,30 @@ unsupported infrastructure is already deployed.
 ## Run
 
 ```bash
-cp deploy/.env.example deploy/.env   # set DEEPSEEK_API_KEY
+cp deployments/.env.example deployments/.env   # set DEEPSEEK_API_KEY
 ./scripts/start-mcps.sh
-docker compose -f deploy/docker-compose.yaml up -d --build
+docker compose -f deployments/docker-compose.yaml up -d --build
 ```
+
+For local .NET development, run the Aspire AppHost instead. It orchestrates
+the four first-party MCP projects, SupportAgent, and SupportChat as processes
+with service health and the Aspire dashboard. Infrastructure and AgentGateway
+remain available through the Compose deployment above.
+
+```bash
+dotnet run --project src/AppHost/AppHost.csproj
+```
+
+Use Compose when you need the complete containerized deployment. Do not run
+the Compose MCP services and the Aspire MCP projects on the same host ports at
+the same time.
 
 Optional: add per-user Envoy rate limiting (adds the ratelimit service + Redis
 and switches the gateway config to its remote-ratelimit variant):
 
 ```bash
-docker compose -f deploy/docker-compose.yaml \
-  -f deploy/docker-compose.ratelimit.yaml up -d --build
+docker compose -f deployments/docker-compose.yaml \
+  -f deployments/docker-compose.ratelimit.yaml up -d --build
 ```
 
 The script starts only the external `everything` MCP server on the host with
@@ -118,6 +132,49 @@ dotnet run
 
 The client logs in to Keycloak, lists the multiplexed MCP tools, runs three
 chat turns that exercise MCP tool calls, and finally calls the A2A agent.
+
+## Testing
+
+Run tests only after external ToolHive MCP proxies and the Compose stack are
+running. First configure both values in `deployments/.env`:
+
+```dotenv
+DEEPSEEK_API_KEY=your-deepseek-api-key
+DEEPSEEK_ENDPOINT=api.deepseek.com:443
+```
+
+From `samples/agentgateway-ai-gateway`, start the external ToolHive MCP
+proxies first, then start the Compose stack:
+
+```bash
+./scripts/start-mcps.sh
+docker compose -f deployments/docker-compose.yaml up -d --build
+```
+
+On Windows, run the script from Git Bash or WSL. If running tests from
+PowerShell, also load provider settings into the current process because
+`dotnet test` does not automatically read `deployments/.env`:
+
+```powershell
+$env:DEEPSEEK_API_KEY = (Get-Content deployments/.env | Where-Object { $_ -match '^DEEPSEEK_API_KEY=' }) -replace '^DEEPSEEK_API_KEY=', ''
+$env:DEEPSEEK_ENDPOINT = (Get-Content deployments/.env | Where-Object { $_ -match '^DEEPSEEK_ENDPOINT=' }) -replace '^DEEPSEEK_ENDPOINT=', ''
+```
+
+Run the test project from the repository root:
+
+```bash
+dotnet test tests/AgentGateway.Samples.Tests/AgentGateway.Samples.Tests.csproj
+```
+
+See [`tests/README.md`](tests/README.md) for the complete setup, startup, and
+cleanup sequence.
+
+The test project expects AgentGateway on its configured host ports and uses
+the ToolHive proxies for the `everything` and `sequentialthinking` targets.
+Tests that call the real DeepSeek provider are skipped when
+`DEEPSEEK_API_KEY` is missing. Stop the external proxies with
+`./scripts/stop-mcps.sh` and stop Compose with
+`docker compose -f deployments/docker-compose.yaml down`.
 
 ## ToolHive vs direct HTTP (when to use which)
 
@@ -149,10 +206,10 @@ llm:
     apiKey:
       mode: strict
       keys:
-      - key: $ALICE_GATEWAY_KEY
-        metadata:
-          name: alice
-          user: alice
+        - key: $ALICE_GATEWAY_KEY
+          metadata:
+            name: alice
+            user: alice
 ```
 
 The same policy can protect `/mcp` when an MCP client supports API keys:
@@ -163,10 +220,10 @@ mcp:
     apiKey:
       mode: strict
       keys:
-      - key: $ALICE_GATEWAY_KEY
-        metadata:
-          name: alice
-          user: alice
+        - key: $ALICE_GATEWAY_KEY
+          metadata:
+            name: alice
+            user: alice
 ```
 
 This MCP API-key policy is documented as an option but is not enabled in this
@@ -208,13 +265,13 @@ provider extension is needed for PKCE-based LLM access.
 
 ### How the gateway authenticates (which endpoint uses what)
 
-| Endpoint                    | Auth mechanism                                                                                                                                                                                                             | Configured in                              |
-| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| LLM gateway `:4000`         | **API key** - virtual keys (`sk-alice-*`, `sk-bob-*`); `metadata.user` feeds metrics, logs, rate limits                                                                                                                    | `llm.policies.apiKey` (mode strict)        |
-| LLM browser gateway `:4001` | **OIDC Authorization Code + PKCE** through Keycloak; browser session cookie protects `/v1` requests. Separate from API-key `:4000`.                                                                                        | `routes[].policies.oidc`                   |
+| Endpoint                    | Auth mechanism                                                                                                                                                                                                        | Configured in                                             |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| LLM gateway `:4000`         | **API key** - virtual keys (`sk-alice-*`, `sk-bob-*`); `metadata.user` feeds metrics, logs, rate limits                                                                                                               | `llm.policies.apiKey` (mode strict)                       |
+| LLM browser gateway `:4001` | **OIDC Authorization Code + PKCE** through Keycloak; browser session cookie protects `/v1` requests. Separate from API-key `:4000`.                                                                                   | `routes[].policies.oidc`                                  |
 | MCP gateway `:3000`         | **API key or OAuth2/OIDC JWT** - strict `apiKey` is available for clients that support bearer keys; this sample uses `mcpAuthentication` with Keycloak, PKCE browser discovery, and password grant for `SupportChat`. | `mcp.policies.apiKey` or `mcp.policies.mcpAuthentication` |
-| A2A gateway `:3001`         | **OAuth2/OIDC JWT from Keycloak** - same JWKS as MCP; browser flows use **PKCE** and the public `agentgateway-browser` client; `SupportChat` uses the password grant for demo convenience                                  | `routes[].policies.jwtAuth`                |
-| Admin UI `:15000`           | None by default (local admin interface); optional OIDC policy to lock it down                                                                                                                                              | `config.adminAddr`, optional `ui.policies` |
+| A2A gateway `:3001`         | **OAuth2/OIDC JWT from Keycloak** - same JWKS as MCP; browser flows use **PKCE** and the public `agentgateway-browser` client; `SupportChat` uses the password grant for demo convenience                             | `routes[].policies.jwtAuth`                               |
+| Admin UI `:15000`           | None by default (local admin interface); optional OIDC policy to lock it down                                                                                                                                         | `config.adminAddr`, optional `ui.policies`                |
 
 So: `:4000` uses API keys, `:4001` adds browser OIDC/PKCE for LLM consumers, and `/mcp` uses Keycloak JWT/OAuth in this sample while also supporting an API-key alternative. Clients use one explicit authentication model per endpoint.
 
@@ -247,8 +304,8 @@ Started with `--ratelimit`, the limits move to an Envoy ratelimit service
 (per-user MCP/A2A request limits plus LLM token budgets: Alice 100,000 tokens/day,
 Bob 50,000 tokens/day, keyed on virtual API-key user / JWT subject) that
 survives gateway restarts. See
-`deploy/docker-compose.ratelimit.yaml` and
-`deploy/infra/ratelimit/config.yaml`.
+`deployments/docker-compose.ratelimit.yaml` and
+`deployments/infra/ratelimit/config.yaml`.
 
 For the difference between local and remote rate limiting, see the
 [AgentGateway rate-limit docs](https://agentgateway.dev/docs/standalone/latest/configuration/resiliency/rate-limits/).
@@ -262,7 +319,7 @@ rule rejects it).
 ### Cost and request-bound demo
 
 The gateway loads DeepSeek pricing from
-`deploy/costs/catalog.json` and records realized token cost in the request log,
+`deployments/costs/catalog.json` and records realized token cost in the request log,
 traces, metrics, and Admin UI analytics. The catalog is mounted read-only by
 Compose and configured with `config.modelCatalog`:
 
@@ -289,12 +346,12 @@ and [LLM transformations](https://agentgateway.dev/docs/standalone/latest/llm/tr
 guides for catalog imports, PostgreSQL-backed analytics, token/cost budgets,
 and more advanced policy expressions. The `--ratelimit` profile configures the
 LLM policy with `type: tokens`, `apiKey.user`, and matching per-user Envoy
-descriptors in `deploy/infra/ratelimit/config.yaml`.
+descriptors in `deployments/infra/ratelimit/config.yaml`.
 
 ### OpenAPI-to-MCP demo
 
 Compose starts Swagger Petstore as a normal REST service. AgentGateway reads
-`deploy/openapi/petstore.yaml` and exposes its operations as MCP tools named
+`deployments/openapi/petstore.yaml` and exposes its operations as MCP tools named
 from their unique `operationId` values, including `openapi_getInventory` and
 `openapi_getPetById`. Use the Admin UI MCP Tool Playground or the authenticated
 MCP endpoint to list and call them. The OpenAPI target uses stateless MCP
@@ -335,11 +392,11 @@ authorization (alice vs bob), A2A JWT auth, request guardrails, local rate
 limiting, and the Admin UI / metrics endpoints.
 
 The concrete DeepSeek route theory calls each configured provider model. Load
-the key from `deploy/.env` into the current process, then run the LLM test
+the key from `deployments/.env` into the current process, then run the LLM test
 module directly with the xUnit v3 runner:
 
 ```powershell
-$env:DEEPSEEK_API_KEY = (Get-Content deploy/.env | Where-Object { $_ -match '^DEEPSEEK_API_KEY=' } | ForEach-Object { $_.Substring('DEEPSEEK_API_KEY='.Length) })
+$env:DEEPSEEK_API_KEY = (Get-Content deployments/.env | Where-Object { $_ -match '^DEEPSEEK_API_KEY=' } | ForEach-Object { $_.Substring('DEEPSEEK_API_KEY='.Length) })
 dotnet exec tests/AgentGateway.Samples.Tests/bin/Debug/net10.0/AgentGateway.Samples.Tests.dll --filter-class AgentGateway.Samples.Tests.LlmGatewayTests
 ```
 
@@ -369,7 +426,7 @@ scripts/
   stop-mcps.sh                  # stop ToolHive MCPs (everything, sequentialthinking)
   verify.sh                     # end-to-end smoke tests against the running stack
                                 # (LLM/MCP auth, CEL authz, guardrails, 429, A2A)
-deploy/
+deployments/
   agentgateway-config.yaml      # gateway config (llm, mcp, a2a route, tracing,
                                 # local rate limits)
   agentgateway-config.remote-ratelimit.yaml   # variant with remoteRateLimit

@@ -1,8 +1,8 @@
 {
   "Gateway": {
-    "McpUrl": "http://localhost:3000/mcp",
-    "LlmUrl": "http://localhost:4000/v1",
-    "A2AUrl": "http://localhost:3001",
+    "McpUrl": "http://localhost:13002/mcp",
+    "LlmUrl": "http://localhost:14000/v1",
+    "A2AUrl": "http://localhost:13003",
     "AdminUrl": "http://localhost:15000",
     "MetricsUrl": "http://localhost:15020/metrics"
   },

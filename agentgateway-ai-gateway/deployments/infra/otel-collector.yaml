@@ -1,0 +1,114 @@
+# OpenTelemetry Collector receives OTLP from AgentGateway and other services.
+# Pull mode is enabled by default: Prometheus scrapes the Collector's
+# prometheus/app exporter. Push mode is documented below and must be enabled
+# together with Prometheus's OTLP receiver.
+receivers:
+  # OTLP is the application ingress for traces, metrics, and logs.
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  # Docker JSON logs are read from the read-only container-log mount.
+  filelog/docker:
+    include:
+      - /var/lib/docker/containers/*/*-json.log
+    start_at: end
+    include_file_path: true
+    operators:
+      - type: json_parser
+        id: parse-docker-json
+        parse_from: body
+      - type: move
+        id: move-docker-log
+        from: attributes.log
+        to: body
+      - type: time_parser
+        id: parse-docker-time
+        parse_from: attributes.time
+        layout: "%Y-%m-%dT%H:%M:%S.%fZ"
+
+processors:
+  # Batch reduces exporter overhead and improves throughput for all signals.
+  batch: {}
+
+  # Give Docker stdout logs a stable service identity for Loki queries.
+  resource/logs:
+    attributes:
+      - key: service.name
+        value: agentgateway
+        action: upsert
+
+exporters:
+  # Collector diagnostics. Useful while developing or troubleshooting.
+  debug:
+    verbosity: basic
+
+  # Pull-based metrics output. Prometheus scrapes this endpoint from its
+  # otel-collector-app job in prometheus.yaml.
+  prometheus/app:
+    endpoint: 0.0.0.0:8889
+    resource_to_telemetry_conversion:
+      enabled: true
+
+  # Push-based alternative. Enable this exporter in the metrics pipeline and
+  # enable Prometheus --web.enable-otlp-receiver at the same time. Do not use
+  # both metrics exporters for the same OTLP stream unless duplicate series
+  # are intentional.
+  # otlphttp/prometheus:
+  #   endpoint: http://prometheus:9090/api/v1/otlp
+
+  # Trace backend used by Grafana.
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+  # Log backend queried by Grafana with LogQL.
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+  # LLM-specific trace backend.
+  otlphttp/langfuse:
+    # Langfuse OTLP ingestion endpoint (public API, HTTP/protobuf)
+    endpoint: http://langfuse-web:3000/api/public/otel
+    headers:
+      Authorization: "Basic ${env:LANGFUSE_AUTH}"
+      x-langfuse-ingestion-version: "4"
+
+service:
+  # Collector self-metrics are exposed separately from application metrics.
+  telemetry:
+    metrics:
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+  pipelines:
+    # OTLP traces fan out to Tempo, Langfuse, and the debug exporter.
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/tempo, otlphttp/langfuse, debug]
+    # Docker logs go to Loki. AgentGateway currently writes structured logs
+    # to stdout, so this pipeline uses filelog/docker rather than otlp.
+    logs:
+      receivers: [filelog/docker]
+      processors: [resource/logs, batch]
+      exporters: [otlphttp/loki, debug]
+
+    # Pull-based application metrics. Prometheus scrapes :8889/metrics.
+    # The AgentGateway's native :15020 endpoint remains separately scraped.
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus/app, debug]
+
+    # Push alternative. Replace the exporters line above with the following
+    # and enable Prometheus's OTLP receiver in docker-compose.yaml:
+    # metrics/push:
+    #   receivers: [otlp]
+    #   processors: [batch]
+    #   exporters: [otlphttp/prometheus, debug]

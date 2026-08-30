@@ -1,0 +1,13 @@
+apiVersion: 1
+
+providers:
+  - name: agentgateway
+    orgId: 1
+    folder: agentgateway
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      # Dashboard source JSON is imported through Grafana API so datasource
+      # variables and stable UIDs are handled without editing upstream files.
+      path: /var/lib/grafana/dashboards-imported

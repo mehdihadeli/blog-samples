@@ -15,6 +15,7 @@
     <ProjectReference Include="..\Mcp.Tickets\Mcp.Tickets.csproj" IsAspireProjectResource="true" />
     <ProjectReference Include="..\Mcp.Catalog\Mcp.Catalog.csproj" IsAspireProjectResource="true" />
     <ProjectReference Include="..\Mcp.Customers\Mcp.Customers.csproj" IsAspireProjectResource="true" />
+    <ProjectReference Include="..\Mcp.Time\Mcp.Time.csproj" IsAspireProjectResource="true" />
     <ProjectReference Include="..\SupportChat\SupportChat.csproj" IsAspireProjectResource="true" />
     <ProjectReference Include="..\SupportAgent\SupportAgent.csproj" IsAspireProjectResource="true" />
   </ItemGroup>

@@ -68,9 +68,9 @@ public sealed class ZZRateLimitTests : GatewayTestBase
 
         var tooManyRequestsObserved = false;
         var requestCount = 0;
-
-        // The MCP gateway allows 2000 requests/minute. Drain the bucket quickly.
-        for (; requestCount < 2020; requestCount++)
+        // Keep the burst small enough for the sample request-log store while
+        // still exceeding the 60-request local demo bucket.
+        for (; requestCount < 100; requestCount++)
         {
             try
             {
@@ -79,7 +79,12 @@ public sealed class ZZRateLimitTests : GatewayTestBase
             }
             catch (Exception exception)
             {
-                tooManyRequestsObserved = exception.Message.Contains("429");
+                tooManyRequestsObserved =
+                    exception.Message.Contains("429", StringComparison.Ordinal)
+                    || exception.Message.Contains(
+                        "rate limit exceeded",
+                        StringComparison.OrdinalIgnoreCase
+                    );
                 Output.WriteLine(exception.Message);
                 break;
             }

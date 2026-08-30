@@ -23,12 +23,16 @@ using OpenAI;
 // llm.policies.apiKey.
 // ---------------------------------------------------------------------------
 
-const string GatewayMcpUrl = "http://localhost:3000/mcp";
-const string GatewayLlmUrl = "http://localhost:4000/v1";
-const string GatewayA2AUrl = "http://localhost:3001/v1/message:send";
-const string KeycloakTokenUrl =
-    "http://localhost:8080/realms/agentgateway/protocol/openid-connect/token";
-const string GatewayApiKey = "sk-alice-abc123def456"; // virtual key, metadata.user = "alice"
+var gatewayMcpUrl =
+    Environment.GetEnvironmentVariable("GatewayMcpUrl") ?? "http://localhost:3000/mcp";
+var gatewayLlmUrl =
+    Environment.GetEnvironmentVariable("GatewayLlmUrl") ?? "http://localhost:4000/v1";
+var gatewayA2AUrl =
+    Environment.GetEnvironmentVariable("GatewayA2AUrl") ?? "http://localhost:3001/v1/message:send";
+var keycloakTokenUrl =
+    Environment.GetEnvironmentVariable("KeycloakTokenUrl")
+    ?? "http://localhost:8080/realms/agentgateway/protocol/openid-connect/token";
+var gatewayApiKey = Environment.GetEnvironmentVariable("GatewayApiKey") ?? "sk-alice-abc123def456"; // virtual key, metadata.user = "alice"
 
 // 1) Get a Keycloak access token (password grant, client "support-chat").
 //    The client is confidential, so the request also carries a client secret.
@@ -43,7 +47,7 @@ var form = new FormUrlEncodedContent(
         ["password"] = "alice-password",
     }
 );
-var tokenResponse = await http.PostAsync(KeycloakTokenUrl, form);
+var tokenResponse = await http.PostAsync(keycloakTokenUrl, form);
 tokenResponse.EnsureSuccessStatusCode();
 var tokenJson = await tokenResponse.Content.ReadFromJsonAsync<JsonElement>();
 var accessToken = tokenJson.GetProperty("access_token").GetString()!;
@@ -59,7 +63,7 @@ using var loggerFactory = LoggerFactory.Create(b =>
 var transport = new HttpClientTransport(
     new HttpClientTransportOptions
     {
-        Endpoint = new Uri(GatewayMcpUrl),
+        Endpoint = new Uri(gatewayMcpUrl),
         AdditionalHeaders = new Dictionary<string, string>
         {
             ["Authorization"] = $"Bearer {accessToken}",
@@ -90,10 +94,10 @@ foreach (var tool in tools)
 var openAiOptions = new OpenAIClientOptions
 {
     Transport = new HttpClientPipelineTransport(
-        new HttpClient { BaseAddress = new Uri(GatewayLlmUrl + "/") }
+        new HttpClient { BaseAddress = new Uri(gatewayLlmUrl + "/") }
     ),
 };
-var openAiClient = new OpenAIClient(new ApiKeyCredential(GatewayApiKey), openAiOptions);
+var openAiClient = new OpenAIClient(new ApiKeyCredential(gatewayApiKey), openAiOptions);
 
 // "deepseek-smart" is the gateway's weighted virtual model.
 var chatClient = openAiClient.GetChatClient("deepseek-smart").AsIChatClient();
@@ -128,7 +132,7 @@ await RunTurnAsync("Create a ticket for the login outage.", chatClient);
 Console.WriteLine();
 Console.WriteLine("[a2a] sending message/send to the agent through the gateway...");
 var agentReply = await SendA2AMessageAsync(
-    GatewayA2AUrl,
+    gatewayA2AUrl,
     accessToken,
     "Please summarize the current open tickets."
 );
