@@ -44,7 +44,7 @@ export class PkceAuth {
     const config = vscode.workspace.getConfiguration("agentgateway");
     return {
       issuer: config
-        .get<string>("issuer", "http://localhost:8080/realms/agentgateway")
+        .get<string>("issuer", "http://localhost:5000/auth/realms/agentgateway")
         .replace(/\/$/u, ""),
       clientId: config.get<string>("clientId", "agentgateway-vscode"),
       scope: config.get<string>("scope", "openid profile email"),

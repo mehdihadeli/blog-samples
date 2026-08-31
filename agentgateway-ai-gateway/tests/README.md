@@ -30,8 +30,8 @@ From `samples/agentgateway-ai-gateway`:
    docker compose -f deployments/docker-compose.yaml up -d --build
    ```
 
-   Compose publishes AgentGateway MCP, LLM, and A2A endpoints on `13002`,
-   `14000`, and `13003`. Keycloak uses `8080`.
+   Compose publishes only YARP on `5000`. MCP, LLM, A2A, Admin, metrics, and
+   Keycloak are reachable through path-based routes on that port.
 
 ## Run Tests
 

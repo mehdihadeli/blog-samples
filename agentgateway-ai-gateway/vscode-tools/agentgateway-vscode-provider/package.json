@@ -48,12 +48,12 @@
       "properties": {
         "agentgateway.baseUrl": {
           "type": "string",
-          "default": "http://localhost:14002/v1",
+          "default": "http://localhost:5000/vscode/v1",
           "description": "OpenAI-compatible AgentGateway LLM route."
         },
         "agentgateway.issuer": {
           "type": "string",
-          "default": "http://localhost:8080/realms/agentgateway",
+          "default": "http://localhost:5000/auth/realms/agentgateway",
           "description": "Keycloak realm issuer URL."
         },
         "agentgateway.clientId": {

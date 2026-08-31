@@ -1,13 +1,13 @@
 {
   "Gateway": {
-    "McpUrl": "http://localhost:13002/mcp",
-    "LlmUrl": "http://localhost:14000/v1",
-    "A2AUrl": "http://localhost:13003",
-    "AdminUrl": "http://localhost:15000",
-    "MetricsUrl": "http://localhost:15020/metrics"
+    "McpUrl": "http://localhost:5000/mcp",
+    "LlmUrl": "http://localhost:5000/v1",
+    "A2AUrl": "http://localhost:5000/a2a",
+    "AdminUrl": "http://localhost:5000/admin",
+    "MetricsUrl": "http://localhost:5000/metrics"
   },
   "Keycloak": {
-    "TokenUrl": "http://localhost:8080/realms/agentgateway/protocol/openid-connect/token",
+    "TokenUrl": "http://localhost:5000/auth/realms/agentgateway/protocol/openid-connect/token",
     "ClientId": "support-chat",
     "ClientSecret": "support-chat-secret",
     "BrowserClientId": "agentgateway-browser"

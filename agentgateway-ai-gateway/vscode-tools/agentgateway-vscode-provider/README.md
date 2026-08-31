@@ -24,8 +24,8 @@ PKCE verifier values.
 
 | Setting         | Value                                                 |
 | --------------- | ----------------------------------------------------- |
-| LLM route       | `http://localhost:14002/v1`                           |
-| Keycloak issuer | `http://localhost:8080/realms/agentgateway`           |
+| LLM route       | `http://localhost:5000/vscode/v1`                     |
+| Keycloak issuer | `http://localhost:5000/auth/realms/agentgateway`      |
 | Public client   | `agentgateway-vscode`                                 |
 | Redirect URI    | `vscode://agentgateway.vscode-provider/auth/callback` |
 | OAuth method    | Authorization Code with S256 PKCE                     |

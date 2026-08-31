@@ -21,12 +21,12 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-LLM_URL="${LLM_URL:-http://localhost:4000/v1/chat/completions}"
-MCP_URL="${MCP_URL:-http://localhost:3000/mcp}"
-A2A_URL="${A2A_URL:-http://localhost:3001}"
+LLM_URL="${LLM_URL:-http://localhost:5000/v1/chat/completions}"
+MCP_URL="${MCP_URL:-http://localhost:5000/mcp}"
+A2A_URL="${A2A_URL:-http://localhost:5000/a2a}"
 A2A_CARD_URL="$A2A_URL/.well-known/agent-card.json"
-METRICS_URL="http://localhost:15020/metrics"
-KEYCLOAK_TOKEN_URL="http://localhost:8080/realms/agentgateway/protocol/openid-connect/token"
+METRICS_URL="${METRICS_URL:-http://localhost:5000/metrics}"
+KEYCLOAK_TOKEN_URL="${KEYCLOAK_TOKEN_URL:-http://localhost:5000/auth/realms/agentgateway/protocol/openid-connect/token}"
 
 ALICE_KEY="sk-alice-abc123def456"
 BOB_KEY="sk-bob-xyz789uvw012"
@@ -85,6 +85,10 @@ STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -X POST "$LLM_URL" \
   -H "Authorization: Bearer sk-invalid-key" -H "Content-Type: application/json" \
   -d '{"model":"deepseek-smart","messages":[{"role":"user","content":"hi"}]}')
 check "LLM with invalid key rejected" 401 "$STATUS"
+
+PKCE_URL="${PKCE_URL:-http://localhost:5000/browser/v1/models}"
+STATUS=$(curl -sS -o /dev/null -w "%{http_code}" "$PKCE_URL")
+check "LLM browser route reaches AgentGateway PKCE policy" 302 "$STATUS"
 
 echo "==> [3/9] MCP gateway - Keycloak JWT required"
 STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -X POST "$MCP_URL" \

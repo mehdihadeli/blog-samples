@@ -18,7 +18,7 @@ using SupportAgent;
 // ---------------------------------------------------------------------------
 
 var gatewayLlmUrl =
-    Environment.GetEnvironmentVariable("GATEWAY_LLM_URL") ?? "http://localhost:4000/v1";
+    Environment.GetEnvironmentVariable("GATEWAY_LLM_URL") ?? "http://localhost:5000/v1";
 var gatewayApiKey =
     Environment.GetEnvironmentVariable("GATEWAY_API_KEY") ?? "sk-alice-abc123def456";
 

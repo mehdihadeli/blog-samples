@@ -1,8 +1,8 @@
 # ---------------------------------------------------------------------------
 # AgentGateway AI Gateway - full local stack (ToolHive runtime for MCPs)
 #
-#   agentgateway  - the gateway itself (LLM 4000, MCP 3000, A2A 3001,
-#                   Admin UI 15000, metrics 15020)
+#   yarp          - the only host-facing listener (http://localhost:5000)
+#   agentgateway  - internal LLM/MCP/A2A/Admin/metrics listeners
 #   mcp-*         - 3 .NET MCP servers in containers (tickets/catalog/
 #                   customers) + external MCPs (everything, sequentialthinking)
 #                   run on
@@ -42,6 +42,20 @@
 name: agentgateway-ai-gateway
 
 services:
+  # The public edge. Every Agent Gateway and Keycloak listener stays on the
+  # Compose network; YARP exposes one stable host port and selects routes by
+  # path.
+  yarp:
+    image: mcr.microsoft.com/dotnet/nightly/yarp:latest
+    restart: unless-stopped
+    volumes:
+      - ./yarp.config:/etc/yarp.config:ro
+    ports:
+      - "5000:5000"
+    depends_on:
+      - agentgateway
+      - keycloak
+
   # -------------------------------------------------------------------------
   # The gateway itself (hardened: read-only rootfs, no capabilities).
   # The everything/time MCP targets point at host-side ToolHive proxies
@@ -49,9 +63,16 @@ services:
   # -------------------------------------------------------------------------
   agentgateway:
     image: cr.agentgateway.dev/agentgateway:latest
-    container_name: agentgateway-ai-gateway
     restart: unless-stopped
     command: ["-f", "/config.yaml"]
+    expose:
+      - "3000" # MCP gateway: tools and resources
+      - "3001" # A2A gateway: agent-to-agent messaging
+      - "4000" # LLM gateway: API-key authentication
+      - "4001" # LLM gateway: browser OIDC/PKCE authentication
+      - "4002" # LLM gateway: VS Code JWT authentication
+      - "15000" # Admin UI and administrative API
+      - "15020" # Prometheus metrics endpoint
     # The gateway fetches Keycloak's JWKS at startup and exits when the
     # fetch fails - wait for the healthcheck so it never crash-loops.
     # OPTIONAL (Envoy rate limiting): add
@@ -84,15 +105,6 @@ services:
       # Lets the gateway reach the host-side ToolHive MCP proxies
       # (http://host.docker.internal:19101/19102/mcp, see config).
       - "host.docker.internal:host-gateway"
-    ports:
-      # Windows reserves 4000-4002; host clients use these alternate ports.
-      - "14000:4000" # LLM gateway
-      - "14001:4001" # Browser OIDC/PKCE LLM gateway
-      - "14002:4002" # VS Code provider JWT LLM gateway
-      - "13002:3000" # MCP gateway
-      - "13003:3001" # A2A gateway (route)
-      - "15000:15000" # Admin UI
-      - "15020:15020" # Prometheus metrics
     volumes:
       # The Admin UI can persist policy edits such as Apply CORS. The gateway
       # root filesystem remains read-only; only this scoped config mount is writable.
@@ -116,15 +128,15 @@ services:
   # -------------------------------------------------------------------------
   keycloak:
     image: quay.io/keycloak/keycloak:latest
-    container_name: agentgateway-ai-gateway-keycloak
     restart: unless-stopped
     command: ["start-dev", "--import-realm"]
+    expose:
+      - "8080"
+      - "9000"
     environment:
       - KEYCLOAK_ADMIN=admin
       - KEYCLOAK_ADMIN_PASSWORD=admin
       - KC_HEALTH_ENABLED=true
-    ports:
-      - "8080:8080"
     volumes:
       - ./infra/keycloak/agentgateway-realm.json:/opt/keycloak/data/import/agentgateway-realm.json:ro
       # Persistent data dir: keeps the realm + signing keys across
@@ -189,6 +201,8 @@ services:
       dockerfile: Mcp.Tickets/Dockerfile
     environment:
       - ASPNETCORE_URLS=http://+:8081
+    expose:
+      - "8081"
     depends_on: []
 
   mcp-catalog:
@@ -197,6 +211,8 @@ services:
       dockerfile: Mcp.Catalog/Dockerfile
     environment:
       - ASPNETCORE_URLS=http://+:8082
+    expose:
+      - "8082"
     depends_on: []
 
   mcp-customers:
@@ -205,6 +221,8 @@ services:
       dockerfile: Mcp.Customers/Dockerfile
     environment:
       - ASPNETCORE_URLS=http://+:8083
+    expose:
+      - "8083"
     depends_on: []
 
   mcp-time:
@@ -213,12 +231,16 @@ services:
       dockerfile: Mcp.Time/Dockerfile
     environment:
       - ASPNETCORE_URLS=http://+:8084
+    expose:
+      - "8084"
     depends_on: []
 
   # REST API exposed as MCP tools through the gateway's OpenAPI adapter.
   petstore:
     image: swaggerapi/petstore3:latest
     restart: unless-stopped
+    expose:
+      - "8080"
 
   # Demo sink for AgentGateway's MCP requestMirror policy. AgentGateway sends
   # a shadow copy of 10% of MCP requests here for debugging, evaluation, or
@@ -230,6 +252,8 @@ services:
     image: hashicorp/http-echo:latest
     command: ["-listen=:5678", "-text=mirrored"]
     restart: unless-stopped
+    expose:
+      - "5678"
 
   # mcp-everything and mcp-time are NOT in this stack: they run on the HOST
   # via ToolHive (scripts/start-mcps.sh) and are proxied to the gateway at
@@ -276,12 +300,10 @@ services:
     # has no Docker socket and reads this directory through a read-only mount.
     user: "0:0"
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
-    ports:
-      # Windows reserves 4317-4318; Docker clients still use the internal
-      # Collector ports, while host clients use 14317 and 14318.
-      - "14317:4317"
-      - "14318:4318"
-      - "8889:8889"
+    expose:
+      - "4317"
+      - "4318"
+      - "8889"
     environment:
       - LANGFUSE_AUTH=cGstbGYtMDAwMDAwMDAtMDAwMC0wMDAwLTAwMDAtMDAwMDAwMDAwMDAxOnNrLWxmLTAwMDAwMDAwLTAwMDAtMDAwMC0wMDAwLTAwMDAwMDAwMDAwMQ==
     volumes:
@@ -294,8 +316,8 @@ services:
 
   prometheus:
     image: prom/prometheus:latest
-    ports:
-      - "9090:9090"
+    expose:
+      - "9090"
     volumes:
       - ./infra/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
     depends_on:
@@ -305,6 +327,8 @@ services:
     image: prom/node-exporter:latest
     platform: linux/amd64
     restart: unless-stopped
+    expose:
+      - "9100"
     volumes:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
@@ -313,31 +337,26 @@ services:
       - "--path.procfs=/host/proc"
       - "--path.rootfs=/rootfs"
       - "--path.sysfs=/host/sys"
-    ports:
-      - "9100:9100"
 
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:latest
     platform: linux/amd64
     restart: unless-stopped
     privileged: true
+    expose:
+      - "8080"
     volumes:
       - /:/rootfs:ro
       - /var/run:/var/run:ro
       - /sys:/sys:ro
       - /var/lib/docker:/var/lib/docker:ro
       - /dev/disk:/dev/disk:ro
-    ports:
-      # Host port 8080 belongs to Keycloak; cAdvisor remains on 8080 internally.
-      - "18081:8080"
 
   tempo:
     image: grafana/tempo:latest
     command: ["-config.file=/etc/tempo/config.yaml"]
-    ports:
-      # 3200 is reserved by this Windows host; Docker services still use
-      # tempo:3200 internally, while host access is available on 13200.
-      - "13200:3200"
+    expose:
+      - "3200"
     volumes:
       - ./infra/tempo.yaml:/etc/tempo/config.yaml:ro
       - tempo-data:/var/tempo
@@ -345,19 +364,23 @@ services:
   loki:
     image: grafana/loki:latest
     command: ["-config.file=/etc/loki/config.yaml"]
-    ports:
-      - "3100:3100"
+    expose:
+      - "3100"
     volumes:
       - ./infra/loki.yaml:/etc/loki/config.yaml:ro
       - loki-data:/loki
 
   grafana:
-    image: grafana/grafana-oss:latest
-    ports:
-      - "13000:3000"
+    image: grafana/grafana:latest
+    expose:
+      - "3000"
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_CSRF_TRUSTED_ORIGINS=http://localhost:5000
+      - GF_SERVER_ROOT_URL=http://localhost:5000/grafana/
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
+      - GF_LIVE_ALLOWED_ORIGINS=http://localhost:5000
     volumes:
       - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./infra/grafana/dashboards:/var/lib/grafana/dashboards-imported:ro
@@ -396,8 +419,8 @@ services:
 
   langfuse-web:
     image: langfuse/langfuse:latest
-    ports:
-      - "13001:3000"
+    expose:
+      - "3000"
     environment:
       - NODE_ENV=production
       - DATABASE_URL=postgresql://postgres:postgres@langfuse-db:5432/langfuse
@@ -410,7 +433,7 @@ services:
       - CLICKHOUSE_USER=clickhouse
       - CLICKHOUSE_PASSWORD=clickhouse
       - CLICKHOUSE_CLUSTER_ENABLED=false
-      - NEXTAUTH_URL=http://localhost:13001
+      - NEXTAUTH_URL=http://langfuse.localhost:5000/api/auth
       - NEXTAUTH_SECRET=agentgateway-demo-nextauth-secret-123456
       - SALT=agentgateway-demo-salt-1234567890
       - ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef

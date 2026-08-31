@@ -55,7 +55,7 @@ export class AgentGatewayProvider implements vscode.LanguageModelChatProvider {
     const accessToken = await this.auth.getAccessToken();
     const config = vscode.workspace.getConfiguration("agentgateway");
     const baseUrl = config
-      .get<string>("baseUrl", "http://localhost:14002/v1")
+      .get<string>("baseUrl", "http://localhost:5000/vscode/v1")
       .replace(/\/$/u, "");
     this.logger.info("provider.request.start", {
       baseUrl,

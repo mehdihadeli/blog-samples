@@ -1,5 +1,23 @@
 # yaml-language-server: $schema=https://agentgateway.dev/schema/config
 config:
+  # Listener and request flow:
+  #
+  #   YARP public path -> Agent Gateway listener -> route -> policies -> backend
+  #
+  # The listener is a protocol/authentication boundary, not a model boundary.
+  # Models are selected later by the route backend. Therefore several
+  # listeners can expose the same AI capabilities (chat/responses/models) with
+  # different client authentication requirements.
+  #
+  # Default Agent Gateway listeners used by this sample:
+  #   3000  MCP protocol: tools/resources, protected by mcpAuthentication.
+  #   4000  OpenAI-compatible LLM API, protected by llm.policies.apiKey.
+  # Named listeners below:
+  #   3001  A2A protocol for agent-to-agent messages.
+  #   4001  Browser LLM API, OIDC Authorization Code + PKCE session cookie.
+  #   4002  VS Code LLM API, JWT bearer token validation.
+  # Management listeners:
+  #   15000 Admin UI/API; 15020 Prometheus metrics.
   adminAddr: 0.0.0.0:15000
   modelCatalog:
     - file: /costs/catalog.json
@@ -15,6 +33,11 @@ config:
     otlpEndpoint: http://otel-collector:4317
     randomSampling: true
 llm:
+  # https://agentgateway.dev/docs/standalone/latest/configuration/security/apikey-authn/
+  # Default LLM component. With no gateway attachment, Agent Gateway
+  # automatically creates its built-in LLM listener and route on port 4000.
+  # YARP exposes that internal route publicly as /v1. The policies, models,
+  # guardrails, and limits below are applied by this default LLM route.
   policies:
     apiKey:
       mode: strict
@@ -27,6 +50,20 @@ llm:
           metadata:
             user: bob
             name: bob
+
+    # https://agentgateway.dev/docs/standalone/latest/configuration/security/jwt-authn/
+    # VS Code alternative: replace the apiKey block above with this policy.
+    # The extension owns Keycloak Authorization Code + PKCE, stores tokens in
+    # VS Code SecretStorage, and sends the access JWT as a bearer token.
+    # jwtAuth validates that already-issued token. mcpAuthentication is only
+    # for MCP OAuth discovery and must not be copied into llm.policies.
+    # jwtAuth:
+    #   mode: strict
+    #   issuer: http://keycloak:8080/realms/agentgateway
+    #   audiences:
+    #     - agentgateway
+    #   jwks:
+    #     url: http://keycloak:8080/realms/agentgateway/protocol/openid-connect/certs
     guardrails:
       streaming: Enabled
       request:
@@ -53,6 +90,8 @@ llm:
         fillInterval: 1h
         type: tokens
   models:
+    # Provider-backed model entries. A route backend chooses which model to use.
+    # Model names are logical IDs, not Docker ports.
     - name: deepseek-v4-flash
       visibility: public
       provider: deepseek
@@ -86,6 +125,8 @@ llm:
           consecutiveFailures: 1
           duration: 60s
   virtualModels:
+    # Logical routing IDs. A request naming deepseek-smart or
+    # deepseek-resilient is routed to their target models by policy.
     - name: deepseek-smart
       routing:
         weighted:
@@ -103,11 +144,17 @@ llm:
             - model: deepseek-v4-flash-backup
               priority: 1
 mcp:
+  # Default MCP component. Agent Gateway automatically creates its built-in
+  # MCP listener and route on port 3000 when no gateway attachment is given.
+  # YARP exposes that internal route publicly as /mcp. The policies and MCP
+  # targets below are applied by this default MCP route.
+  # Active auth: Keycloak/OIDC with PKCE-compatible OAuth discovery.
+  # API-key authentication remains documented below as an alternative.
   statefulMode: stateless
   policies:
     cors:
       allowOrigins:
-        - http://localhost:15000
+        - http://localhost:5000
       allowMethods:
         - POST
         - OPTIONS
@@ -124,9 +171,10 @@ mcp:
         - mcp-session-id
       allowCredentials: true
       maxAge: 10m
+    # https://agentgateway.dev/docs/standalone/latest/configuration/security/mcp-authn/
     mcpAuthentication:
       mode: strict
-      issuer: http://localhost:8080/realms/agentgateway
+      issuer: http://keycloak:8080/realms/agentgateway
       audiences:
         - agentgateway
       jwks:
@@ -136,11 +184,22 @@ mcp:
       clientId: agentgateway-browser
       clientSecret: agentgateway-browser-secret
       resourceMetadata:
-        resource: http://localhost:3000/mcp
+        resource: http://localhost:5000/mcp
         scopesSupported:
           - read:all
         bearerMethodsSupported:
           - header
+
+    # https://agentgateway.dev/docs/standalone/latest/configuration/security/apikey-authn/
+    # Alternative approach for non-interactive clients:
+    # replace mcpAuthentication above with this policy. Do not enable both.
+    # apiKey:
+    #   mode: strict
+    #   keys:
+    #     - key: replace-with-mcp-client-api-key
+    #       metadata:
+    #         user: mcp-client
+    #         role: support
     mcpAuthorization:
       rules:
         - mcp.tool.target == "tickets"
@@ -193,6 +252,23 @@ mcp:
           file: /openapi/petstore.yaml
         host: petstore:8080
 gateways:
+  # Each gateway is an internal listener. Routes attach to a gateway, then
+  # apply authentication/policy and forward to a backend. YARP maps its public
+  # path to these listeners; it does not perform Agent Gateway authentication.
+  #
+  # Built-in listeners used by MCP and LLM endpoints:
+  #   3000 -> MCP endpoint, protected by mcpAuthentication.
+  #   4000 -> LLM endpoint, protected by llm.policies.apiKey.
+  # YARP maps /mcp to 3000 and /v1 to 4000. These mappings are generated by
+  # Agent Gateway defaults and are not entries in routes:.
+  #
+  # VS Code MCP with PKCE uses the default MCP listener on 3000:
+  #   VS Code MCP client -> YARP /mcp -> Agent Gateway 3000
+  # The mcpAuthentication policy validates the Keycloak token, and
+  # mcpAuthorization decides which tools the user may call. This is separate
+  # from the VS Code LLM listener on 4002, which validates JWTs for AI requests:
+  #   VS Code LLM client -> YARP /vscode/v1 -> Agent Gateway 4002
+
   # A2A listener: receives agent-to-agent message requests for SupportAgent.
   a2a:
     port: 3001
@@ -203,6 +279,18 @@ gateways:
   llm-vscode:
     port: 4002
 routes:
+  # Route relationship:
+  #   gateway -> matches -> policies -> backends -> model/provider
+  #
+  # The explicit routes below are needed when one component needs its own
+  # path, authentication policy, or backend. The generated MCP and API-key
+  # LLM routes are configured by mcp.gateways and llm.gateways instead.
+  #
+  # AI backends below expose OpenAI-compatible operations such as
+  # /v1/chat/completions and /v1/responses. The route's client-facing
+  # listener/authentication is independent from the provider model selected by
+  # the backend. For example, browser and VS Code routes use separate ports
+  # and auth policies but can expose the same DeepSeek model.
   # Browser clients authenticate interactively with Keycloak through OIDC.
   - name: llm-browser-oidc
     gateways:
@@ -216,11 +304,11 @@ routes:
     policies:
       # AgentGateway runs Authorization Code + PKCE and stores a session cookie.
       oidc:
-        issuer: http://localhost:8080/realms/agentgateway
+        issuer: http://keycloak:8080/realms/agentgateway
         clientId: agentgateway-browser
         clientSecret: agentgateway-browser-secret
-        redirectURI: http://localhost:4001/oauth/callback
-        authorizationEndpoint: http://localhost:8080/realms/agentgateway/protocol/openid-connect/auth
+        redirectURI: http://localhost:5000/browser/oauth/callback
+        authorizationEndpoint: http://localhost:5000/auth/realms/agentgateway/protocol/openid-connect/auth
         tokenEndpoint: http://keycloak:8080/realms/agentgateway/protocol/openid-connect/token
         jwks:
           url: http://keycloak:8080/realms/agentgateway/protocol/openid-connect/certs
@@ -230,7 +318,7 @@ routes:
       cors:
         # Only the local browser tool is allowed to call this route.
         allowOrigins:
-          - http://localhost:15000
+          - http://localhost:5000
         allowMethods:
           - GET
           - POST
@@ -262,6 +350,7 @@ routes:
                 prepend:
                   - role: system
                     content: You are the support platform assistant. Prefer concise, actionable answers.
+
   # The VS Code extension completes PKCE and sends its access JWT here.
   - name: llm-vscode-jwt
     gateways:
@@ -273,7 +362,7 @@ routes:
       # Validate issuer, audience, signature, and expiry on the bearer token.
       jwtAuth:
         mode: strict
-        issuer: http://localhost:8080/realms/agentgateway
+        issuer: http://keycloak:8080/realms/agentgateway
         audiences:
           - agentgateway
         jwks:
@@ -310,6 +399,7 @@ routes:
                 prepend:
                   - role: system
                     content: You are the support platform assistant. Prefer concise, actionable answers.
+
   - name: a2a-support-agent
     gateways:
       - a2a
@@ -324,7 +414,7 @@ routes:
           - authorization
       jwtAuth:
         mode: strict
-        issuer: http://localhost:8080/realms/agentgateway
+        issuer: http://keycloak:8080/realms/agentgateway
         audiences:
           - agentgateway
         jwks:

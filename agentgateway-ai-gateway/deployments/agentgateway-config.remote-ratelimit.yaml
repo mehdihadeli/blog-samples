@@ -169,7 +169,7 @@ mcp:
   policies:
     # Needed for the MCP Tool Playground in the Admin UI.
     cors:
-      allowOrigins: ["http://localhost:15000"]
+      allowOrigins: ["http://localhost:5000"]
       allowMethods: [POST, OPTIONS]
       allowHeaders:
         [
@@ -187,7 +187,7 @@ mcp:
     # Validate Keycloak access tokens (OAuth2/OIDC, PKCE for browser flows).
     mcpAuthentication:
       mode: strict
-      issuer: http://localhost:8080/realms/agentgateway
+      issuer: http://keycloak:8080/realms/agentgateway
       audiences:
         - agentgateway
       jwks:
@@ -197,7 +197,7 @@ mcp:
       clientId: agentgateway-browser
       clientSecret: agentgateway-browser-secret
       resourceMetadata:
-        resource: http://localhost:3000/mcp
+        resource: http://localhost:5000/mcp
         scopesSupported:
           - read:all
         bearerMethodsSupported:
@@ -299,17 +299,17 @@ routes:
           exact: /oauth/callback
     policies:
       oidc:
-        issuer: http://localhost:8080/realms/agentgateway
+        issuer: http://keycloak:8080/realms/agentgateway
         clientId: agentgateway-browser
         clientSecret: agentgateway-browser-secret
-        redirectURI: http://localhost:4001/oauth/callback
-        authorizationEndpoint: http://localhost:8080/realms/agentgateway/protocol/openid-connect/auth
+        redirectURI: http://localhost:5000/browser/oauth/callback
+        authorizationEndpoint: http://localhost:5000/auth/realms/agentgateway/protocol/openid-connect/auth
         tokenEndpoint: http://keycloak:8080/realms/agentgateway/protocol/openid-connect/token
         jwks:
           url: http://keycloak:8080/realms/agentgateway/protocol/openid-connect/certs
         scopes: [profile, email]
       cors:
-        allowOrigins: ["http://localhost:15000"]
+        allowOrigins: ["http://localhost:5000"]
         allowMethods: [GET, POST, OPTIONS]
         allowHeaders: [authorization, content-type, cache-control]
         allowCredentials: true
@@ -344,7 +344,7 @@ routes:
       # Validate Keycloak access tokens (OAuth2/OIDC, PKCE for browser flows).
       jwtAuth:
         mode: strict
-        issuer: http://localhost:8080/realms/agentgateway
+        issuer: http://keycloak:8080/realms/agentgateway
         audiences:
           - agentgateway
         jwks:
@@ -374,10 +374,10 @@ routes:
 #   ui:
 #     policies:
 #       oidc:
-#         issuer: http://localhost:8080/realms/agentgateway
+#         issuer: http://keycloak:8080/realms/agentgateway
 #         clientId: agentgateway-browser
 #         clientSecret: <client-secret>
-#         redirectURI: http://localhost:3000/oauth/callback
+#         redirectURI: http://localhost:5000/browser/oauth/callback
 #         scopes: [profile, email]
 #       authorization:
 #         rules:

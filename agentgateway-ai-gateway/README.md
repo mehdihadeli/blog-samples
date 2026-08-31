@@ -5,52 +5,101 @@ AI gateway in front of LLM, MCP, and A2A traffic, with identity (Keycloak),
 local rate limiting (in-memory token buckets), guardrails, and full
 observability (OpenTelemetry + Grafana LGTM + self-hosted Langfuse).
 
+All browser and client traffic enters through YARP on `http://localhost:5000`.
+YARP only forwards by public path or host. AgentGateway decides the active
+authentication policy on each internal listener.
+
 ## Architecture
 
-```text
-                          +------------------------------------------------------+
-                          |                      Docker compose                   |
-                          |                                                       |
-  SupportChat (host)  --> |  agentgateway  --LLM 4000-->  DeepSeek API           |
-   console client        |      |  --MCP 3000--> mcp-tickets/catalog/customers   |
-   (MCP + LLM + A2A)     |      |  --MCP 3000--> host ToolHive proxies           |
-                         |      |        (everything :19101 via ToolHive)       |
-                         |      |        (sequentialthinking :19103 via ToolHive)|
-                         |      |  --A2A 3001--> support-agent (.NET A2A)        |
-                         |      |  --OTLP 4317--> otel-collector                 |
-                         |      |                  |---> tempo (traces)          |
-                         |      |                  |---> loki  (Docker logs)     |
-                         |      |                  |---> langfuse (LLM traces)   |
-                         |      |  --metrics 15020--> prometheus                 |
-                         |      +--> grafana (13000)                             |
-                         |      +--> keycloak (8080)   - OIDC / PKCE / JWT       |
-                         +------------------------------------------------------+
+```mermaid
+flowchart TD
+  Client[Clients\nSupportChat, browser, VS Code, operators] --> Y[YARP\nlocalhost:5000]
 
-Rate limiting is LOCAL: the gateway holds in-memory token buckets (60 req/s +
-50k tokens/h for LLM, 2,000 req/min for MCP), no external ratelimit service.
+  Y --> V1[/v1/*/]
+  Y --> MCP[/mcp/*/]
+  Y --> Browser[/browser/*/]
+  Y --> VSCode[/vscode/*/]
+  Y --> A2A[/a2a/*/]
+  Y --> Admin[/admin/*/]
+  Y --> Auth[/auth/*/]
+  Y --> Grafana[/grafana/*/]
+  Y --> Metrics[/metrics\n/otel-metrics/metrics/]
+  Y --> LFHost[langfuse.localhost:5000]
+
+  V1 --> LLM[AgentGateway :4000\nAPI-key LLM]
+  MCP --> MCPL[AgentGateway :3000\nMCP multiplexer]
+  Browser --> BrowserL[AgentGateway :4001\nOIDC browser LLM]
+  VSCode --> VsL[AgentGateway :4002\nJWT LLM]
+  A2A --> A2AL[AgentGateway :3001\nA2A JWT]
+  Admin --> AdminL[AgentGateway :15000\nAdmin UI]
+
+  LLM --> DeepSeek[DeepSeek]
+  MCPL --> DotNetMcp[.NET MCP servers]
+  MCPL --> ToolHive[ToolHive MCP proxies\neverything, sequentialthinking]
+  MCPL --> OpenApiMcp[OpenAPI MCP target]
+  A2AL --> SupportAgent[SupportAgent]
+
+  LLM --> OTel[OpenTelemetry Collector]
+  OTel --> Tempo[Tempo]
+  OTel --> Loki[Loki]
+  OTel --> Langfuse[Langfuse]
+  Grafana --> GrafanaUi[Grafana]
 ```
+
+Rate limiting is local by default: the gateway holds in-memory token buckets
+for LLM and MCP traffic. The optional `docker-compose.ratelimit.yaml` overlay
+switches the sample to the remote Envoy ratelimit service.
+
+## Public gateway flow
+
+The sample keeps stable public routes and changes authentication in
+AgentGateway config instead of creating multiple edge URLs for the same
+backend listener.
+
+| Public entry                                 | Internal destination  | Active auth model                 | Notes                                                                                |
+| -------------------------------------------- | --------------------- | --------------------------------- | ------------------------------------------------------------------------------------ |
+| `http://localhost:5000/v1/*`                 | AgentGateway `:4000`  | API key                           | Main OpenAI-compatible LLM route.                                                    |
+| `http://localhost:5000/mcp/*`                | AgentGateway `:3000`  | `mcpAuthentication` with Keycloak | Default MCP route in this sample. API key remains available as a config alternative. |
+| `http://localhost:5000/browser/v1/*`         | AgentGateway `:4001`  | OIDC + PKCE                       | Browser login flow managed by AgentGateway.                                          |
+| `http://localhost:5000/vscode/v1/*`          | AgentGateway `:4002`  | JWT                               | Intended for a custom VS Code provider that completes PKCE itself.                   |
+| `http://localhost:5000/a2a/*`                | AgentGateway `:3001`  | JWT                               | Protects the A2A route.                                                              |
+| `http://localhost:5000/auth/*`               | Keycloak `:8080`      | Keycloak UI and OIDC endpoints    | Public auth surface through YARP.                                                    |
+| `http://localhost:5000/admin/*`              | AgentGateway `:15000` | None by default                   | Local operator UI.                                                                   |
+| `http://localhost:5000/grafana/*`            | Grafana `:3000`       | Grafana login                     | Served through the `/grafana/` subpath.                                              |
+| `http://localhost:5000/metrics`              | AgentGateway `:15020` | None                              | Gateway Prometheus metrics.                                                          |
+| `http://localhost:5000/otel-metrics/metrics` | Collector `:8889`     | None                              | Collector metrics.                                                                   |
+| `http://langfuse.localhost:5000/`            | Langfuse `:3000`      | Langfuse login                    | Host-based route keeps Langfuse at URL root.                                         |
+
+### Why Langfuse uses a host-based route
+
+Grafana is configured to work under `/grafana/`, so YARP forwards that prefix
+unchanged. Langfuse is different: the stock web image expects root-relative
+asset and auth paths. The sample therefore exposes Langfuse at
+`http://langfuse.localhost:5000/` instead of `http://localhost:5000/langfuse/`.
+This avoids rebuilding Langfuse with a custom base path.
 
 ## What each piece does
 
-| Piece                                                      | Role                                                                                                                                                                                         |
-| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `agentgateway`                                             | The gateway: API-key LLM proxy (4000), browser OIDC/PKCE LLM proxy (4001), MCP multiplexer (3000), A2A proxy (3001), Admin UI (15000).                                                       |
-| `Mcp.Tickets`, `Mcp.Catalog`, `Mcp.Customers`              | Three custom .NET MCP servers written with the MCP C# SDK (streamable HTTP at `/mcp`).                                                                                                       |
-| `mcp-everything`                                           | External stdio reference MCP server, run on the host via ToolHive and proxied to the gateway as streamable HTTP (`scripts/start-mcps.sh`).                                                   |
-| `mcp-sequentialthinking`                                   | External stdio Docker MCP server, run on the host via ToolHive and proxied to the gateway as streamable HTTP (`scripts/start-mcps.sh`).                                                      |
-| `Mcp.Time`                                                 | Compose-managed .NET MCP server exposing `get_current_time` over streamable HTTP at `mcp-time:8084/mcp`.                                                                                     |
-| `SupportAgent`                                             | A .NET A2A agent (a2a-net) hosted behind the gateway's A2A route; it answers via DeepSeek through the gateway.                                                                               |
-| `SupportChat`                                              | A console client that talks to the LLM, MCP tools, and the A2A agent exclusively through the gateway.                                                                                        |
-| `Keycloak`                                                 | Issues JWTs; the gateway validates them for MCP (`mcpAuthentication`) and uses claims for authorization.                                                                                     |
+| Piece                                                      | Role                                                                                                                                                                                              |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `yarp`                                                     | The only host-facing edge at `:5000`; routes LLM, browser/VS Code, MCP, A2A, Admin, metrics, and Keycloak paths to internal services.                                                             |
+| `agentgateway`                                             | Internal gateway: API-key LLM proxy (4000), browser OIDC/PKCE LLM proxy (4001), MCP multiplexer (3000), A2A proxy (3001), Admin UI (15000).                                                       |
+| `Mcp.Tickets`, `Mcp.Catalog`, `Mcp.Customers`              | Three custom .NET MCP servers written with the MCP C# SDK (streamable HTTP at `/mcp`).                                                                                                            |
+| `mcp-everything`                                           | External stdio reference MCP server, run on the host via ToolHive and proxied to the gateway as streamable HTTP (`scripts/start-mcps.sh`).                                                        |
+| `mcp-sequentialthinking`                                   | External stdio Docker MCP server, run on the host via ToolHive and proxied to the gateway as streamable HTTP (`scripts/start-mcps.sh`).                                                           |
+| `Mcp.Time`                                                 | Compose-managed .NET MCP server exposing `get_current_time` over streamable HTTP at `mcp-time:8084/mcp`.                                                                                          |
+| `SupportAgent`                                             | A .NET A2A agent (a2a-net) hosted behind the gateway's A2A route; it answers via DeepSeek through the gateway.                                                                                    |
+| `SupportChat`                                              | A console client that talks to the LLM, MCP tools, and the A2A agent exclusively through the gateway.                                                                                             |
+| `Keycloak`                                                 | Issues JWTs; the gateway validates them for MCP (`mcpAuthentication`) and uses claims for authorization.                                                                                          |
 | `otel-collector`, `tempo`, `loki`, `prometheus`, `grafana` | LGTM observability stack: traces, logs, metrics, dashboards. Grafana auto-provisions the official AgentGateway dashboard from `deployments/infra/grafana/dashboards/agentgateway-dashboard.json`. |
-| `langfuse` + `minio`                                       | Self-hosted LLM observability; collector OTLP traces land in Langfuse, with MinIO storing Langfuse event payloads.                                                                           |
+| `langfuse` + `minio`                                       | Self-hosted LLM observability; collector OTLP traces land in Langfuse, with MinIO storing Langfuse event payloads.                                                                                |
 
 ## Feature coverage
 
 The runnable Compose deployment covers the following features end to end:
 
-| Feature                                                                | Sample status                                        | Main location                                |
-| ---------------------------------------------------------------------- | ---------------------------------------------------- | -------------------------------------------- |
+| Feature                                                                | Sample status                                        | Main location                                     |
+| ---------------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------- |
 | Weighted virtual models                                                | Implemented and smoke-tested                         | `deployments/agentgateway-config.yaml`            |
 | Virtual API keys and per-user labels                                   | Implemented and smoke-tested                         | `deployments/agentgateway-config.yaml`            |
 | OIDC/PKCE for browser LLM access                                       | Implemented and manually verified                    | `deployments/agentgateway-config.yaml`            |
@@ -63,14 +112,14 @@ The runnable Compose deployment covers the following features end to end:
 | MCP retries and request mirroring                                      | Implemented; mirror sink is opt-in-safe              | `deployments/agentgateway-config*.yaml`           |
 | Priority failover and health eviction                                  | Implemented; use `deepseek-resilient`                | `deployments/agentgateway-config*.yaml`           |
 | OpenTelemetry, Prometheus, Grafana, Loki, Tempo, Langfuse              | Implemented and manually verified                    | `deployments/docker-compose.yaml`                 |
-| Conditional policies and fault injection                               | Article pattern only                                 | See article production section               |
+| Conditional policies and fault injection                               | Article pattern only                                 | See article production section                    |
 | Prompt enrichment                                                      | Implemented on browser LLM route                     | `deployments/agentgateway-config*.yaml`           |
 | Fault injection                                                        | Optional standalone config                           | `deployments/optional/fault-injection.yaml`       |
 | ExtMCP guardrails                                                      | Optional Kubernetes policy fragment                  | `deployments/optional/mcp-guardrails-policy.yaml` |
 | OpenAI external moderation                                             | Optional policy fragment                             | `deployments/optional/moderation-policy.yaml`     |
-| Embeddings, Responses, Messages, rerank, token-counting APIs           | Article pattern only                                 | See article production section               |
-| Kubernetes catalog deployment and PostgreSQL HA                        | Article pattern only                                 | See article production section               |
-| Native VS Code, GitHub Copilot, or Claude Code integration             | No first-class official recipe identified            | See article production section               |
+| Embeddings, Responses, Messages, rerank, token-counting APIs           | Article pattern only                                 | See article production section                    |
+| Kubernetes catalog deployment and PostgreSQL HA                        | Article pattern only                                 | See article production section                    |
+| Native VS Code, GitHub Copilot, or Claude Code integration             | No first-class official recipe identified            | See article production section                    |
 
 "Article pattern only" means the article explains the feature with an
 official reference and configuration shape, but this repository does not
@@ -87,6 +136,7 @@ unsupported infrastructure is already deployed.
 - [ToolHive](https://github.com/stacklok/toolhive) (`winget install stacklok.thv` on Windows / `brew install thv` on macOS)
 - .NET SDK 10 (only if you run the console client / build locally)
 - A DeepSeek API key
+- `curl`, `python` on `PATH`, and optionally `jq` for `scripts/verify.sh`
 
 ## Run
 
@@ -117,9 +167,9 @@ docker compose -f deployments/docker-compose.yaml \
   -f deployments/docker-compose.ratelimit.yaml up -d --build
 ```
 
-The script starts only the external `everything` MCP server on the host with
-ToolHive. Docker Compose manages the gateway, the four .NET MCP servers,
-Keycloak, and observability. Stop the MCP proxy with
+The script starts the external `everything` and `sequentialthinking` MCP
+servers on the host with ToolHive. Docker Compose manages the gateway, the
+four .NET MCP servers, Keycloak, and observability. Stop the MCP proxies with
 `./scripts/stop-mcps.sh`; stop the Compose stack manually with the matching
 `docker compose ... down` command.
 
@@ -151,8 +201,9 @@ proxies first, then start the Compose stack:
 docker compose -f deployments/docker-compose.yaml up -d --build
 ```
 
-On Windows, run the script from Git Bash or WSL. If running tests from
-PowerShell, also load provider settings into the current process because
+On Windows, the simplest validated path is Git Bash with the host Python
+installation available there. If running tests from PowerShell, also load
+provider settings into the current process because
 `dotnet test` does not automatically read `deployments/.env`:
 
 ```powershell
@@ -279,13 +330,161 @@ So: `:4000` uses API keys, `:4001` adds browser OIDC/PKCE for LLM consumers, and
 
 | What                    | Where                                                                                                                                                                                                             |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| LLM through the gateway | `curl http://localhost:4000/v1/chat/completions -H "Authorization: Bearer sk-alice-abc123def456" -H "Content-Type: application/json" -d '{"model":"deepseek-smart","messages":[{"role":"user","content":"hi"}]}'` |
-| LLM browser OIDC/PKCE   | Open `http://localhost:4001/v1/models`; it redirects to Keycloak with S256 PKCE and returns with an AgentGateway session cookie.                                                                                  |
-| MCP tools list          | `curl http://localhost:3000/mcp -H "Authorization: Bearer <keycloak-token>" -X POST -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'` (see SupportChat output for a token)                                     |
-| A2A agent card          | `curl http://localhost:3001/.well-known/agent-card.json -H "Authorization: Bearer <keycloak-token>"`                                                                                                              |
-| Admin UI                | [http://localhost:15000/ui/](http://localhost:15000/ui/) - includes the CEL playground at `/ui/cel/` and the MCP Tool Playground                                                                                  |
-| Keycloak                | [http://localhost:8080](http://localhost:8080) (admin / admin)                                                                                                                                                    |
-| Grafana                 | [http://localhost:13000](http://localhost:13000) (admin / admin) - official AgentGateway dashboard, Tempo for traces, Loki for logs                                                                               |
+| LLM through the gateway | `curl http://localhost:5000/v1/chat/completions -H "Authorization: Bearer sk-alice-abc123def456" -H "Content-Type: application/json" -d '{"model":"deepseek-smart","messages":[{"role":"user","content":"hi"}]}'` |
+| LLM browser OIDC/PKCE   | Open `http://localhost:5000/browser/v1/models`; it redirects through `http://localhost:5000/auth` with S256 PKCE.                                                                                                 |
+| MCP tools list          | `curl http://localhost:5000/mcp -H "Authorization: Bearer <keycloak-token>" -X POST -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'` (see SupportChat output for a token)                                     |
+| A2A agent card          | `curl http://localhost:5000/a2a/.well-known/agent-card.json -H "Authorization: Bearer <keycloak-token>"`                                                                                                          |
+| Admin UI                | [http://localhost:5000/admin/ui/](http://localhost:5000/admin/ui/) - includes the CEL playground and MCP Tool Playground                                                                                          |
+| Keycloak                | [http://localhost:5000/auth](http://localhost:5000/auth) (admin / admin)                                                                                                                                          |
+| Grafana                 | [http://localhost:5000/grafana/](http://localhost:5000/grafana/) (admin / admin), routed by YARP to internal Grafana.                                                                                             |
+| Langfuse                | [http://langfuse.localhost:5000/](http://langfuse.localhost:5000/) - self-hosted LLM trace UI exposed through YARP with a dedicated host route.                                                                   |
+
+### Curl recipes
+
+Use these commands after the ToolHive proxies and Compose stack are up.
+
+#### 1. Health checks
+
+```bash
+curl http://localhost:5000/metrics
+curl http://localhost:5000/otel-metrics/metrics
+curl http://langfuse.localhost:5000/api/public/health
+```
+
+#### 2. LLM request with gateway API key
+
+```bash
+curl http://localhost:5000/v1/chat/completions \
+  -H "Authorization: Bearer sk-alice-abc123def456" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "deepseek-smart",
+    "messages": [
+      { "role": "user", "content": "List available support tools in one sentence." }
+    ]
+  }'
+```
+
+#### 3. Get a Keycloak access token for MCP and A2A
+
+Demo users come from the imported realm. `alice` has the `support-admin`
+role; `bob` does not.
+
+```bash
+curl -X POST http://localhost:5000/auth/realms/agentgateway/protocol/openid-connect/token \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=password" \
+  -d "client_id=supportchat" \
+  -d "username=alice" \
+  -d "password=alice-password"
+```
+
+With `jq`:
+
+```bash
+export KEYCLOAK_TOKEN=$(curl -s -X POST http://localhost:5000/auth/realms/agentgateway/protocol/openid-connect/token \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=password" \
+  -d "client_id=supportchat" \
+  -d "username=alice" \
+  -d "password=alice-password" | jq -r .access_token)
+```
+
+Without `jq`, copy the `access_token` value from the JSON response into an
+environment variable manually.
+
+#### 4. List aggregated MCP tools
+
+```bash
+curl http://localhost:5000/mcp \
+  -H "Authorization: Bearer $KEYCLOAK_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/list"
+  }'
+```
+
+#### 5. Call a first-party MCP tool
+
+```bash
+curl http://localhost:5000/mcp \
+  -H "Authorization: Bearer $KEYCLOAK_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "tools/call",
+    "params": {
+      "name": "tickets_tickets_list",
+      "arguments": {}
+    }
+  }'
+```
+
+#### 6. Call an OpenAPI-generated MCP tool
+
+```bash
+curl http://localhost:5000/mcp \
+  -H "Authorization: Bearer $KEYCLOAK_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 3,
+    "method": "tools/call",
+    "params": {
+      "name": "openapi_getInventory",
+      "arguments": {}
+    }
+  }'
+```
+
+#### 7. Prove MCP authorization is enforced
+
+Get a token for `bob`, then call a customer tool. The request should fail with
+403 because the CEL policy requires the `support-admin` role.
+
+```bash
+export BOB_TOKEN=$(curl -s -X POST http://localhost:5000/auth/realms/agentgateway/protocol/openid-connect/token \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=password" \
+  -d "client_id=supportchat" \
+  -d "username=bob" \
+  -d "password=bob-password" | jq -r .access_token)
+
+curl -i http://localhost:5000/mcp \
+  -H "Authorization: Bearer $BOB_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 4,
+    "method": "tools/call",
+    "params": {
+      "name": "customers_customers_get",
+      "arguments": { "id": 1 }
+    }
+  }'
+```
+
+#### 8. Read the A2A agent card
+
+```bash
+curl http://localhost:5000/a2a/.well-known/agent-card.json \
+  -H "Authorization: Bearer $KEYCLOAK_TOKEN"
+```
+
+#### 9. Trigger local rate limiting
+
+This sends many small requests through the LLM route. Some responses should
+eventually become `429 Too Many Requests`.
+
+```bash
+for i in $(seq 1 80); do \
+  curl -s -o /dev/null -w "%{http_code}\n" http://localhost:5000/v1/models \
+    -H "Authorization: Bearer sk-alice-abc123def456"; \
+done
+```
 
 ### Authorization demo
 
@@ -329,7 +528,7 @@ config:
     - file: /costs/catalog.json
 ```
 
-Open `http://localhost:15000/ui/llm/analytics` after sending an LLM request to
+Open `http://localhost:5000/admin/ui/llm/analytics` after sending an LLM request to
 view token usage and cost. The concrete `deepseek-v4-flash` and
 `deepseek-v4-pro` models also apply an LLM transformation that caps
 `max_tokens` at 1024:
@@ -406,7 +605,7 @@ by the test process and is never printed or used as the gateway client key.
 
 ### Manual walkthrough in the Admin UI
 
-1. Open [http://localhost:15000/ui/](http://localhost:15000/ui/) - the **Gateway Overview** lists LLM, MCP and Traffic capabilities.
+1. Open [http://localhost:5000/admin/ui/](http://localhost:5000/admin/ui/) - the **Gateway Overview** lists LLM, MCP and Traffic capabilities.
 2. **Traffic > Routes** - confirm three routes:
    - the LLM route on port 4000 (`llm`);
    - the MCP route on port 3000 (`/mcp`);
@@ -464,7 +663,7 @@ export KEYCLOAK_TOKEN="<alice access token>"
 The script uses the official Inspector CLI with its HTTP transport for
 Streamable HTTP. It checks
 `tools/list`, calls `tickets_tickets_list`, and calls the OpenAPI-generated
-`openapi_getInventory` tool through `http://localhost:3000/mcp`.
+`openapi_getInventory` tool through `http://localhost:5000/mcp`.
 
 For the browser UI, run:
 
@@ -473,9 +672,9 @@ npx @modelcontextprotocol/inspector
 ```
 
 Open the printed local Inspector URL, choose Streamable HTTP, enter
-`http://localhost:3000/mcp`, and add `Authorization: Bearer <token>` as a
+`http://localhost:5000/mcp`, and add `Authorization: Bearer <token>` as a
 request header. Capture the tools list and an OpenAPI tool result as evidence.
-The Admin UI at `http://localhost:15000/ui/` provides the same MCP Tool
+The Admin UI at `http://localhost:5000/admin/ui/` provides the same MCP Tool
 Playground and is useful for checking CORS, OAuth/PKCE, and target health.
 
 The sample intentionally does not add TLS/mTLS or native stdio targets to the

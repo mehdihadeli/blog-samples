@@ -26,12 +26,12 @@ var supportAgent = builder
 // exclusively through AgentGateway, exactly like a production client would.
 builder
     .AddProject<Projects.SupportChat>("support-chat")
-    .WithEnvironment("GatewayMcpUrl", "http://localhost:3000/mcp")
-    .WithEnvironment("GatewayLlmUrl", "http://localhost:4000/v1")
-    .WithEnvironment("GatewayA2AUrl", "http://localhost:3001")
+    .WithEnvironment("GatewayMcpUrl", "http://localhost:5000/mcp")
+    .WithEnvironment("GatewayLlmUrl", "http://localhost:5000/v1")
+    .WithEnvironment("GatewayA2AUrl", "http://localhost:5000/a2a")
     .WithEnvironment(
         "KeycloakTokenUrl",
-        "http://localhost:8080/realms/agentgateway/protocol/openid-connect/token"
+        "http://localhost:5000/auth/realms/agentgateway/protocol/openid-connect/token"
     )
     .WithEnvironment("GatewayApiKey", "sk-alice-abc123def456")
     .WaitFor(supportAgent);

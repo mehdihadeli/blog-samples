@@ -2,7 +2,7 @@
 # Exercise the Docker Compose MCP gateway through the official MCP Inspector CLI.
 set -euo pipefail
 
-MCP_URL="${MCP_URL:-http://localhost:3000/mcp}"
+MCP_URL="${MCP_URL:-http://localhost:5000/mcp}"
 : "${KEYCLOAK_TOKEN:?Set KEYCLOAK_TOKEN to an Alice Keycloak access token}"
 
 INSPECTOR=(npx --yes @modelcontextprotocol/inspector --cli \

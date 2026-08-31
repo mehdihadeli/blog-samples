@@ -13,9 +13,9 @@ using OpenAI;
 //
 // A plain console client that talks to DeepSeek, to MCP tools, and to an A2A
 // agent EXCLUSIVELY through AgentGateway. It never touches a backend directly:
-//   - LLM calls     -> http://localhost:4000/v1   (gateway LLM port)
-//   - MCP tools     -> http://localhost:3000/mcp  (gateway MCP port)
-//   - A2A agent     -> http://localhost:3001      (gateway A2A route)
+//   - LLM calls     -> http://localhost:5000/v1   (YARP -> gateway LLM)
+//   - MCP tools     -> http://localhost:5000/mcp  (YARP -> gateway MCP)
+//   - A2A agent     -> http://localhost:5000/a2a  (YARP -> gateway A2A)
 //
 // The MCP and A2A calls are authenticated with a Keycloak access token (the
 // gateway MCP endpoint is configured with mcpAuthentication and the A2A route
@@ -24,14 +24,15 @@ using OpenAI;
 // ---------------------------------------------------------------------------
 
 var gatewayMcpUrl =
-    Environment.GetEnvironmentVariable("GatewayMcpUrl") ?? "http://localhost:3000/mcp";
+    Environment.GetEnvironmentVariable("GatewayMcpUrl") ?? "http://localhost:5000/mcp";
 var gatewayLlmUrl =
-    Environment.GetEnvironmentVariable("GatewayLlmUrl") ?? "http://localhost:4000/v1";
+    Environment.GetEnvironmentVariable("GatewayLlmUrl") ?? "http://localhost:5000/v1";
 var gatewayA2AUrl =
-    Environment.GetEnvironmentVariable("GatewayA2AUrl") ?? "http://localhost:3001/v1/message:send";
+    Environment.GetEnvironmentVariable("GatewayA2AUrl")
+    ?? "http://localhost:5000/a2a/v1/message:send";
 var keycloakTokenUrl =
     Environment.GetEnvironmentVariable("KeycloakTokenUrl")
-    ?? "http://localhost:8080/realms/agentgateway/protocol/openid-connect/token";
+    ?? "http://localhost:5000/auth/realms/agentgateway/protocol/openid-connect/token";
 var gatewayApiKey = Environment.GetEnvironmentVariable("GatewayApiKey") ?? "sk-alice-abc123def456"; // virtual key, metadata.user = "alice"
 
 // 1) Get a Keycloak access token (password grant, client "support-chat").

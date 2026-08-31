@@ -4,6 +4,9 @@
   "sslRequired": "none",
   "defaultSignatureAlgorithm": "RS256",
   "accessTokenLifespan": 3600,
+  "attributes": {
+    "frontendUrl": "http://localhost:5000/auth"
+  },
   "roles": {
     "realm": [{ "name": "support-admin" }, { "name": "support-user" }]
   },
