@@ -33,6 +33,16 @@ From `samples/agentgateway-ai-gateway`:
    Compose publishes only YARP on `5000`. MCP, LLM, A2A, Admin, metrics, and
    Keycloak are reachable through path-based routes on that port.
 
+4. Start the Aspire AppHost for the first-party .NET MCPs and `SupportAgent`:
+
+   ```bash
+   aspire start --apphost src/AppHost/AppHost.csproj --non-interactive --nologo
+   ```
+
+   Aspire binds `mcp-tickets`, `mcp-catalog`, `mcp-customers`, `mcp-time`, and
+   `support-agent` to host ports `8081-8084` and `9999`, which the gateway
+   reaches through Docker host aliases.
+
 ## Run Tests
 
 Run from the sample root:
@@ -51,7 +61,7 @@ $env:DEEPSEEK_ENDPOINT = (Get-Content deployments/.env | Where-Object { $_ -matc
 
 Tests that require the external provider are skipped when
 `DEEPSEEK_API_KEY` is absent. Tests requiring unavailable services fail rather
-than silently passing, so start ToolHive and Compose first.
+than silently passing, so start ToolHive, Compose, and Aspire first.
 
 ## Cleanup
 
@@ -60,4 +70,5 @@ Stop the Compose stack and external MCP proxies after testing:
 ```bash
 docker compose -f deployments/docker-compose.yaml down
 ./scripts/stop-mcps.sh
+aspire stop --apphost src/AppHost/AppHost.csproj
 ```

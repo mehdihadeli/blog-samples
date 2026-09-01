@@ -5,22 +5,30 @@ var builder = DistributedApplication.CreateBuilder(args);
 // network. Here Aspire pins their ports for local development.
 var mcpTickets = builder
     .AddProject<Projects.Mcp_Tickets>("mcp-tickets")
-    .WithHttpEndpoint(port: 8081);
+    .WithHttpEndpoint(port: 8081, targetPort: 8081, isProxied: false)
+    .WithEnvironment("ASPNETCORE_URLS", "http://0.0.0.0:8081");
 
 var mcpCatalog = builder
     .AddProject<Projects.Mcp_Catalog>("mcp-catalog")
-    .WithHttpEndpoint(port: 8082);
+    .WithHttpEndpoint(port: 8082, targetPort: 8082, isProxied: false)
+    .WithEnvironment("ASPNETCORE_URLS", "http://0.0.0.0:8082");
 
 var mcpCustomers = builder
     .AddProject<Projects.Mcp_Customers>("mcp-customers")
-    .WithHttpEndpoint(port: 8083);
+    .WithHttpEndpoint(port: 8083, targetPort: 8083, isProxied: false)
+    .WithEnvironment("ASPNETCORE_URLS", "http://0.0.0.0:8083");
 
-var mcpTime = builder.AddProject<Projects.Mcp_Time>("mcp-time").WithHttpEndpoint(port: 8084);
+var mcpTime = builder
+    .AddProject<Projects.Mcp_Time>("mcp-time")
+    .WithHttpEndpoint(port: 8084, targetPort: 8084, isProxied: false)
+    .WithEnvironment("ASPNETCORE_URLS", "http://0.0.0.0:8084");
 
 // The A2A agent. AgentGateway fronts it on port 3001.
 var supportAgent = builder
     .AddProject<Projects.SupportAgent>("support-agent")
-    .WithHttpEndpoint(port: 9999);
+    .WithHttpEndpoint(port: 9999, targetPort: 9999, isProxied: false)
+    .WithEnvironment("ASPNETCORE_URLS", "http://0.0.0.0:9999");
+supportAgent.WithEnvironment("A2A_SERVER_ADDRESS", supportAgent.GetEndpoint("http"));
 
 // The chat client. It talks to DeepSeek, the MCP tools, and the A2A agent
 // exclusively through AgentGateway, exactly like a production client would.

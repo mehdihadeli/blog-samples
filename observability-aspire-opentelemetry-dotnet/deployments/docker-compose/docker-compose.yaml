@@ -1,44 +1,16 @@
 name: aspire-shop-infrastructure
 services:
   #######################################################
-  #  App Dependencies: Postgres & basketcache (Redis)
-  #######################################################
-  postgres:
-    image: postgres:17
-    restart: unless-stopped
-    ports:
-      - "5432:5432" # PostgreSQL SQL port
-    environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=catalogdb
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - infrastructure
-
-  basketcache:
-    image: redis/redis-stack:7.4.0-v0
-    restart: unless-stopped
-    networks:
-      - infrastructure
-    ports:
-      - "6379:6379" # Redis server port
-      - "8001:8001" # Redis Stack UI port
-    volumes:
-      - basketcache_data:/data
-
-  #######################################################
   #  Observability: OpenTelemetry Collector
   #######################################################
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.110.0
+    image: otel/opentelemetry-collector-contrib:latest
     restart: unless-stopped
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     environment:
       - ASPIRE_OTLP_ENDPOINT=${ASPIRE_OTLP_ENDPOINT:-host.docker.internal:16224}
       - ASPIRE_API_KEY=${ASPIRE_API_KEY:-}
-      - ASPIRE_INSECURE=true
+      - ASPIRE_INSECURE=false
       - PROMETHEUS_ENDPOINT=http://prometheus:9090/api/v1/otlp
       - LOKI_ENDPOINT=http://loki:3100/otlp
       - TEMPO_URL=tempo:4317
@@ -58,7 +30,7 @@ services:
   #  Observability: Metrics (Prometheus)
   #######################################################
   prometheus:
-    image: prom/prometheus:v3.3.1
+    image: prom/prometheus:latest
     restart: unless-stopped
     ports:
       - "9090:9090" # Prometheus UI and query API
@@ -74,7 +46,7 @@ services:
       - infrastructure
 
   node-exporter:
-    image: prom/node-exporter:v1.8.2
+    image: prom/node-exporter:latest
     platform: linux/amd64
     restart: unless-stopped
     volumes:
@@ -90,11 +62,27 @@ services:
     networks:
       - infrastructure
 
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    platform: linux/amd64
+    restart: unless-stopped
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+    ports:
+      - "8080:8080" # cAdvisor metrics and UI endpoint
+    networks:
+      - infrastructure
+
   #######################################################
   #  Observability: S3-Compatible Storage (MinIO)
   #######################################################
   minio:
-    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    image: minio/minio:latest
     restart: unless-stopped
     command:
       - server
@@ -140,7 +128,7 @@ services:
   #  Observability: Traces & Logs (Grafana Stack)
   #######################################################
   tempo:
-    image: grafana/tempo:2.6.0
+    image: grafana/tempo:latest
     restart: unless-stopped
     command: ["-config.file=/etc/tempo.yaml", "-config.expand-env=true"]
     environment:
@@ -158,7 +146,7 @@ services:
       - infrastructure
 
   loki:
-    image: grafana/loki:3.2.0
+    image: grafana/loki:latest
     restart: unless-stopped
     command: -config.file=/etc/loki/local-config.yaml -config.expand-env=true
     environment:
@@ -175,7 +163,7 @@ services:
       - infrastructure
 
   grafana:
-    image: grafana/grafana:11.2.3
+    image: grafana/grafana:latest
     platform: linux/amd64
     restart: unless-stopped
     environment:
@@ -191,7 +179,24 @@ services:
       - "3000:3000" # Grafana UI
     volumes:
       - ./../configs/grafana/provisioning:/etc/grafana/provisioning
-      - ./../configs/grafana/dashboards:/var/lib/grafana/dashboards
+      - ./../configs/grafana/dashboards:/var/lib/grafana/dashboards-imported
+    networks:
+      - infrastructure
+
+  grafana-dashboard-importer:
+    image: python:3.13-alpine
+    restart: on-failure
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GRAFANA_URL: http://grafana:3000
+    volumes:
+      - ./import-dashboards.py:/import-dashboards.py:ro
+      - ./../configs/grafana/dashboards-source:/dashboards:ro
+    command: ["python", "/import-dashboards.py"]
+    depends_on:
+      grafana:
+        condition: service_started
     networks:
       - infrastructure
 
@@ -226,7 +231,6 @@ services:
       - infrastructure
 
   kibana:
-    platform: linux/amd64
     image: docker.elastic.co/kibana/kibana:8.15.2
     restart: unless-stopped
     environment:
@@ -244,7 +248,5 @@ networks:
     driver: bridge
 
 volumes:
-  postgres_data:
-  basketcache_data:
   minio_data:
   elasticsearch_data:

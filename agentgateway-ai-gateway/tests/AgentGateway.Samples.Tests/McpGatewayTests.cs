@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text;
@@ -12,6 +13,8 @@ namespace AgentGateway.Samples.Tests;
 
 public sealed class McpGatewayTests : GatewayTestBase
 {
+    private static readonly ConcurrentDictionary<string, IReadOnlyList<string>> ToolCache = new();
+
     public McpGatewayTests(ITestOutputHelper output)
         : base(output) { }
 
@@ -38,7 +41,7 @@ public sealed class McpGatewayTests : GatewayTestBase
             Settings.Users["Alice"].Username,
             Settings.Users["Alice"].Password
         );
-        var names = await ListToolsAsync(token);
+        var names = await ListToolsAsync("alice", token);
 
         names.ShouldContain(t => t!.StartsWith("tickets_"));
         names.ShouldContain(t => t!.StartsWith("catalog_"));
@@ -63,7 +66,7 @@ public sealed class McpGatewayTests : GatewayTestBase
             Settings.Users["Alice"].Username,
             Settings.Users["Alice"].Password
         );
-        var tools = await ListToolsAsync(token);
+        var tools = await ListToolsAsync("alice", token);
 
         tools.ShouldContain(t => t.StartsWith("customers_"));
     }
@@ -77,7 +80,7 @@ public sealed class McpGatewayTests : GatewayTestBase
             Settings.Users["Bob"].Username,
             Settings.Users["Bob"].Password
         );
-        var tools = await ListToolsAsync(token);
+        var tools = await ListToolsAsync("bob", token);
 
         tools.ShouldNotContain(t => t.StartsWith("customers_"));
         tools.ShouldContain(t => t.StartsWith("tickets_"));
@@ -104,8 +107,13 @@ public sealed class McpGatewayTests : GatewayTestBase
             .ShouldContain("support-admin");
     }
 
-    private async Task<List<string>> ListToolsAsync(string token)
+    private async Task<IReadOnlyList<string>> ListToolsAsync(string cacheKey, string token)
     {
+        if (ToolCache.TryGetValue(cacheKey, out var cachedTools))
+        {
+            return cachedTools;
+        }
+
         using var loggerFactory = LoggerFactory.Create(builder =>
             builder.SetMinimumLevel(LogLevel.Warning)
         );
@@ -134,11 +142,22 @@ public sealed class McpGatewayTests : GatewayTestBase
                     loggerFactory
                 );
                 var tools = await mcpClient.ListToolsAsync();
-                return tools.Select(tool => tool.Name).ToList();
+                var names = tools.Select(tool => tool.Name).ToList();
+                ToolCache[cacheKey] = names;
+                return names;
             }
-            catch (Exception exception) when (exception.Message.Contains("429") && attempt < 60)
+            catch (Exception exception)
+                when ((
+                        exception.Message.Contains("429", StringComparison.Ordinal)
+                        || exception.Message.Contains(
+                            "rate limit exceeded",
+                            StringComparison.OrdinalIgnoreCase
+                        )
+                    )
+                    && attempt < 8
+                )
             {
-                await Task.Delay(TimeSpan.FromSeconds(1), CancellationToken);
+                await Task.Delay(TimeSpan.FromSeconds(2), CancellationToken);
             }
         }
     }

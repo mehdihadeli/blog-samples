@@ -1,83 +1,124 @@
+# Accept OpenTelemetry Protocol data from applications and other collectors.
 receivers:
   otlp:
     protocols:
       grpc:
+        # Listen on all container interfaces for OTLP/gRPC traffic.
         endpoint: 0.0.0.0:4317
       http:
+        # Listen on all container interfaces for OTLP/HTTP traffic.
         endpoint: 0.0.0.0:4318
 
+# Process telemetry before it is sent to backends.
 processors:
   batch:
+    # Hold small groups of records briefly to reduce exporter overhead.
     timeout: 1s
     send_batch_size: 1024
   transform/environment:
+    # Continue processing if a transform statement cannot be applied.
     error_mode: ignore
+    # Add a shared environment resource attribute to every trace.
     trace_statements:
-    - context: resource
-      statements:
-      - set(attributes["environment"], "development")
+      - context: resource
+        statements:
+          - set(attributes["environment"], "development")
+    # Add the same environment attribute to every log record.
     log_statements:
-    - context: resource
-      statements:
-      - set(attributes["environment"], "development")
+      - context: resource
+        statements:
+          - set(attributes["environment"], "development")
+    # Add the same environment attribute to every metric.
     metric_statements:
-    - context: resource
-      statements:
-      - set(attributes["environment"], "development")
+      - context: resource
+        statements:
+          - set(attributes["environment"], "development")
 
+# Define destinations for processed telemetry.
 exporters:
-  otlphttp/prometheus:
-    endpoint: "${env:PROMETHEUS_ENDPOINT}"
-    tls:
-      insecure: true
+  # Expose processed application metrics for Prometheus to scrape.
+  prometheus:
+    # Bind the Prometheus exporter endpoint inside the Collector container.
+    endpoint: 0.0.0.0:8889
+    resource_to_telemetry_conversion:
+      # Copy resource attributes, such as service.name, onto metric labels.
+      enabled: true
 
+  # Alternative: push metrics to Prometheus through its OTLP/HTTP receiver.
+  # Enable this exporter in the metrics pipeline, set PROMETHEUS_ENDPOINT in
+  # Docker Compose, and enable --web.enable-otlp-receiver for Prometheus.
+  # otlphttp/prometheus:
+  #   endpoint: "${env:PROMETHEUS_ENDPOINT}"
+  #   tls:
+  #     insecure: true
+
+  # Send OpenTelemetry logs to Loki.
   otlphttp/loki:
     endpoint: "${env:LOKI_ENDPOINT}"
     tls:
+      # Loki endpoint does not use TLS in this local Compose deployment.
       insecure: true
 
+  # Send OpenTelemetry traces to Tempo over OTLP.
   otlp/tempo:
     endpoint: "${env:TEMPO_URL}"
     tls:
+      # Tempo endpoint does not use TLS in this local Compose deployment.
       insecure: true
 
+  # Forward all supported telemetry to Aspire Dashboard or its OTLP endpoint.
   otlp/aspire:
     endpoint: "${env:ASPIRE_OTLP_ENDPOINT}"
+    # Authenticate with Aspire when an API key is configured.
     headers:
       x-otlp-api-key: "${env:ASPIRE_API_KEY}"
     tls:
+      # Read whether the Aspire endpoint should use insecure transport.
       insecure: ${env:ASPIRE_INSECURE}
+      # Allow development certificates when TLS is enabled.
       insecure_skip_verify: true
 
+  # Index traces and logs in Elasticsearch using OpenTelemetry field mapping.
   elasticsearch:
     endpoints:
-    - "${env:ELASTICSEARCH_ENDPOINT}"
+      - "${env:ELASTICSEARCH_ENDPOINT}"
     mapping:
+      # Use mappings designed for OpenTelemetry documents.
       mode: otel
     sending_queue:
+      # Buffer outgoing records while Elasticsearch is temporarily unavailable.
       enabled: true
     retry:
+      # Retry failed Elasticsearch exports.
       enabled: true
 
+  # Write a compact copy of exported telemetry to the Collector logs.
   debug:
     verbosity: basic
 
+# Expose a health endpoint for container and orchestration probes.
 extensions:
   health_check:
     endpoint: 0.0.0.0:13133
 
+# Connect receivers, processors, and exporters for each telemetry signal.
 service:
-  extensions: [ health_check ]
+  # Activate the health extension defined above.
+  extensions: [health_check]
   pipelines:
     traces:
-      receivers: [ otlp ]
-      processors: [ batch, transform/environment ]
-      exporters: [ otlp/tempo, otlp/aspire, elasticsearch, debug ]
+      # Receive traces through OTLP, enrich and batch them, then fan out.
+      receivers: [otlp]
+      processors: [batch, transform/environment]
+      exporters: [otlp/tempo, otlp/aspire, elasticsearch, debug]
     metrics:
-      receivers: [ otlp ]
-      processors: [ batch, transform/environment ]
-      exporters: [ otlphttp/prometheus, otlp/aspire, debug ]
+      # Expose metrics for Prometheus scraping and forward them to Aspire.
+      receivers: [otlp]
+      processors: [batch, transform/environment]
+      exporters: [prometheus, otlp/aspire, debug]
+      # Alternative push pipeline: [ otlphttp/prometheus, otlp/aspire, debug ]
     logs:
-      receivers: [ otlp ]
-      processors: [ batch, transform/environment ]
-      exporters: [ otlphttp/loki, otlp/aspire, elasticsearch, debug ]
+      # Send logs to Loki, Aspire, Elasticsearch, and the debug exporter.
+      receivers: [otlp]
+      processors: [batch, transform/environment]
+      exporters: [otlphttp/loki, otlp/aspire, elasticsearch, debug]

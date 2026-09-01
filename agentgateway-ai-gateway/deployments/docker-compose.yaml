@@ -3,12 +3,9 @@
 #
 #   yarp          - the only host-facing listener (http://localhost:5000)
 #   agentgateway  - internal LLM/MCP/A2A/Admin/metrics listeners
-#   mcp-*         - 3 .NET MCP servers in containers (tickets/catalog/
-#                   customers) + external MCPs (everything, sequentialthinking)
-#                   run on
-#                   the HOST via ToolHive (thv) and reached through
-#                   host.docker.internal (see scripts/start-mcps.sh)
-#   support-agent - .NET A2A agent behind the gateway's A2A route
+#   mcp-*         - external MCPs (everything, sequentialthinking) run on the
+#                   HOST via ToolHive; first-party .NET MCPs run through Aspire
+#   support-agent - .NET A2A agent run through Aspire
 #   keycloak      - OIDC identity provider for MCP authentication (PKCE)
 #   otel-collector- OTLP traces and Docker file logs to Tempo, Loki, Langfuse
 #   tempo/loki/prometheus/grafana - LGTM observability stack
@@ -19,10 +16,8 @@
 #     default (everything, sequentialthinking). thv wraps them in a streamable HTTP proxy
 #     and keeps them outside the stack. Their lifecycle is NOT managed by
 #     compose, which is why scripts/start-mcps.sh (re)starts them.
-#   - Direct HTTP (compose): MCP servers that natively speak streamable HTTP
-#     - especially YOUR OWN services built from source (the three .NET MCPs
-#     below) - plus any service that needs compose-managed lifecycle,
-#     restart policy, or to be part of the same Docker network.
+#   - Direct HTTP (Compose): MCP servers that natively speak streamable HTTP
+#     and need Compose-managed lifecycle, restart policy, or Docker networking.
 #
 # Note: rate limiting is LOCAL by default (in-memory token buckets in the
 # gateway, see agentgateway-config.yaml). To opt into per-user Envoy rate
@@ -84,14 +79,6 @@ services:
         condition: service_healthy
       otel-collector:
         condition: service_started
-      mcp-tickets:
-        condition: service_started
-      mcp-catalog:
-        condition: service_started
-      mcp-customers:
-        condition: service_started
-      mcp-time:
-        condition: service_started
       petstore:
         condition: service_started
     # Hardening: read-only rootfs, no capabilities, no privilege escalation.
@@ -105,6 +92,13 @@ services:
       # Lets the gateway reach the host-side ToolHive MCP proxies
       # (http://host.docker.internal:19101/19102/mcp, see config).
       - "host.docker.internal:host-gateway"
+      # Aspire runs first-party application services on the host. These aliases
+      # preserve the target names used by the gateway configuration.
+      - "mcp-tickets:host-gateway"
+      - "mcp-catalog:host-gateway"
+      - "mcp-customers:host-gateway"
+      - "mcp-time:host-gateway"
+      - "support-agent:host-gateway"
     volumes:
       # The Admin UI can persist policy edits such as Apply CORS. The gateway
       # root filesystem remains read-only; only this scoped config mount is writable.
@@ -186,55 +180,6 @@ services:
   #   depends_on:
   #     - ratelimit-redis
 
-  # -------------------------------------------------------------------------
-  # The 3 custom .NET MCP servers.
-  #
-  # DIRECT HTTP (not ToolHive): these are built from source in this repo and
-  # natively expose streamable HTTP at /mcp (McpServerToolAttribute + MapMcp).
-  # There is no stdio to proxy, so ToolHive adds nothing; compose gives them
-  # restart policy + the gateway's Docker network. The gateway targets them
-  # directly: http://mcp-tickets:8081/mcp (see agentgateway-config.yaml).
-  # -------------------------------------------------------------------------
-  mcp-tickets:
-    build:
-      context: ../src
-      dockerfile: Mcp.Tickets/Dockerfile
-    environment:
-      - ASPNETCORE_URLS=http://+:8081
-    expose:
-      - "8081"
-    depends_on: []
-
-  mcp-catalog:
-    build:
-      context: ../src
-      dockerfile: Mcp.Catalog/Dockerfile
-    environment:
-      - ASPNETCORE_URLS=http://+:8082
-    expose:
-      - "8082"
-    depends_on: []
-
-  mcp-customers:
-    build:
-      context: ../src
-      dockerfile: Mcp.Customers/Dockerfile
-    environment:
-      - ASPNETCORE_URLS=http://+:8083
-    expose:
-      - "8083"
-    depends_on: []
-
-  mcp-time:
-    build:
-      context: ../src
-      dockerfile: Mcp.Time/Dockerfile
-    environment:
-      - ASPNETCORE_URLS=http://+:8084
-    expose:
-      - "8084"
-    depends_on: []
-
   # REST API exposed as MCP tools through the gateway's OpenAPI adapter.
   petstore:
     image: swaggerapi/petstore3:latest
@@ -270,24 +215,8 @@ services:
   #   - Trade-off: ToolHive workloads are NOT managed by compose - re-run
   #     scripts/start-mcps.sh after a reboot to bring the proxies back.
   #
-  # IF they ever ship HTTP-native images, move them here (direct HTTP) the
-  # same way as the .NET MCPs and drop the thv commands.
-
-  # -------------------------------------------------------------------------
-  # The .NET A2A agent proxied by the gateway's A2A route
-  # -------------------------------------------------------------------------
-  support-agent:
-    build:
-      context: ../src
-      dockerfile: SupportAgent/Dockerfile
-    environment:
-      - ASPNETCORE_URLS=http://+:9999
-      - A2A_SERVER_ADDRESS=http://support-agent:9999
-      - A2A_SERVER_URL=http://support-agent:9999
-      - GATEWAY_LLM_URL=http://agentgateway:4000/v1
-      - GATEWAY_API_KEY=sk-alice-abc123def456
-    depends_on:
-      - agentgateway
+  # IF they ever ship HTTP-native images, they can be added here as
+  # Compose-managed resources.
 
   # -------------------------------------------------------------------------
   # Observability: OpenTelemetry Collector -> Tempo (traces), Loki (logs),

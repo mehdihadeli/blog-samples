@@ -25,31 +25,26 @@ public sealed class ZZRateLimitTests : GatewayTestBase
         using var loggerFactory = LoggerFactory.Create(builder =>
             builder.SetMinimumLevel(LogLevel.Warning)
         );
-        await using var client = await CreateMcpClientAsync(token, loggerFactory);
-
-        // Other integration tests share this gateway-wide bucket. Retry while
-        // it refills, then verify ordinary traffic is accepted.
-        for (var i = 0; i < 5; i++)
+        // Other integration tests share this gateway-wide bucket. Wait for a
+        // clean refill, then verify a normal MCP request succeeds.
+        for (var attempt = 0; attempt < 8; attempt++)
         {
-            for (var attempt = 0; attempt < 15; attempt++)
+            try
             {
-                try
-                {
-                    var tools = await client.ListToolsAsync();
-                    tools.ShouldNotBeEmpty();
-                    break;
-                }
-                catch (Exception exception) when (exception.Message.Contains("429"))
-                {
-                    if (attempt == 14)
-                    {
-                        throw;
-                    }
-
-                    await Task.Delay(TimeSpan.FromSeconds(1), CancellationToken);
-                }
+                await using var client = await CreateMcpClientAsync(token, loggerFactory);
+                var tools = await client.ListToolsAsync();
+                tools.ShouldNotBeEmpty();
+                return;
+            }
+            catch (Exception exception) when (IsRateLimited(exception) && attempt < 7)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2), CancellationToken);
             }
         }
+
+        throw new InvalidOperationException(
+            "Normal MCP traffic never recovered from rate limiting."
+        );
     }
 
     [Fact]
@@ -64,6 +59,7 @@ public sealed class ZZRateLimitTests : GatewayTestBase
         using var loggerFactory = LoggerFactory.Create(builder =>
             builder.SetMinimumLevel(LogLevel.Warning)
         );
+        await Task.Delay(TimeSpan.FromSeconds(2), CancellationToken);
         await using var client = await CreateMcpClientAsync(token, loggerFactory);
 
         var tooManyRequestsObserved = false;
@@ -79,12 +75,7 @@ public sealed class ZZRateLimitTests : GatewayTestBase
             }
             catch (Exception exception)
             {
-                tooManyRequestsObserved =
-                    exception.Message.Contains("429", StringComparison.Ordinal)
-                    || exception.Message.Contains(
-                        "rate limit exceeded",
-                        StringComparison.OrdinalIgnoreCase
-                    );
+                tooManyRequestsObserved = IsRateLimited(exception);
                 Output.WriteLine(exception.Message);
                 break;
             }
@@ -109,13 +100,36 @@ public sealed class ZZRateLimitTests : GatewayTestBase
             loggerFactory
         );
 
-        return await McpClient.CreateAsync(
-            transport,
-            new McpClientOptions
+        for (var attempt = 0; ; attempt++)
+        {
+            try
             {
-                ClientInfo = new Implementation { Name = "gateway-rate-tests", Version = "1.0" },
-            },
-            loggerFactory
-        );
+                return await McpClient.CreateAsync(
+                    transport,
+                    new McpClientOptions
+                    {
+                        ClientInfo = new Implementation
+                        {
+                            Name = "gateway-rate-tests",
+                            Version = "1.0",
+                        },
+                    },
+                    loggerFactory
+                );
+            }
+            catch (Exception exception) when (IsRateLimited(exception) && attempt < 10)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2), CancellationToken);
+            }
+        }
+    }
+
+    private static bool IsRateLimited(Exception exception)
+    {
+        return exception.Message.Contains("429", StringComparison.Ordinal)
+            || exception.Message.Contains(
+                "rate limit exceeded",
+                StringComparison.OrdinalIgnoreCase
+            );
     }
 }

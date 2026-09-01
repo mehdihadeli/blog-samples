@@ -2,9 +2,8 @@
 
 var builder = DistributedApplication.CreateBuilder(args);
 
-var otlpEndpoint =
-    Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT") ?? "http://localhost:4317";
-var otlpProtocol = Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_PROTOCOL") ?? "grpc";
+var otlpEndpoint = Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT");
+var otlpProtocol = Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_PROTOCOL");
 var postgresImageTag = builder.Configuration["Infrastructure:Postgres:ImageTag"] ?? "16.4-alpine";
 var redisImage = builder.Configuration["Infrastructure:Redis:Image"] ?? "redis/redis-stack";
 var redisImageTag = builder.Configuration["Infrastructure:Redis:ImageTag"] ?? "7.4.0-v0";
@@ -32,8 +31,6 @@ var basketCache = builder
 
 var catalogDbManager = builder
     .AddProject<Projects.AspireShop_CatalogDbManager>("catalogdbmanager")
-    .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", otlpEndpoint)
-    .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", otlpProtocol)
     .WithReference(catalogDb)
     .WaitFor(catalogDb)
     .WithHttpHealthCheck("/health")
@@ -43,31 +40,65 @@ var catalogDbManager = builder
         commandOptions: new() { IconName = "DatabaseLightning" }
     );
 
+if (!string.IsNullOrWhiteSpace(otlpEndpoint))
+{
+    catalogDbManager.WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", otlpEndpoint);
+
+    if (!string.IsNullOrWhiteSpace(otlpProtocol))
+    {
+        catalogDbManager.WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", otlpProtocol);
+    }
+}
+
 var catalogService = builder
     .AddProject<Projects.AspireShop_CatalogService>("catalogservice")
-    .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", otlpEndpoint)
-    .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", otlpProtocol)
     .WithReference(catalogDb)
     .WaitFor(catalogDbManager)
-    .WithHttpHealthCheck("/health");
+    .WithHttpHealthCheck("/health", endpointName: "http");
+
+if (!string.IsNullOrWhiteSpace(otlpEndpoint))
+{
+    catalogService.WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", otlpEndpoint);
+
+    if (!string.IsNullOrWhiteSpace(otlpProtocol))
+    {
+        catalogService.WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", otlpProtocol);
+    }
+}
 
 var basketService = builder
     .AddProject<Projects.AspireShop_BasketService>("basketservice")
-    .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", otlpEndpoint)
-    .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", otlpProtocol)
     .WithReference(basketCache)
     .WaitFor(basketCache);
 
-builder
+if (!string.IsNullOrWhiteSpace(otlpEndpoint))
+{
+    basketService.WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", otlpEndpoint);
+
+    if (!string.IsNullOrWhiteSpace(otlpProtocol))
+    {
+        basketService.WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", otlpProtocol);
+    }
+}
+
+var frontend = builder
     .AddProject<Projects.AspireShop_Frontend>("frontend")
-    .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", otlpEndpoint)
-    .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", otlpProtocol)
     .WithExternalHttpEndpoints()
     .WithUrlForEndpoint("https", url => url.DisplayText = "Online Store (HTTPS)")
     .WithUrlForEndpoint("http", url => url.DisplayText = "Online Store (HTTP)")
-    .WithHttpHealthCheck("/health")
+    .WithHttpHealthCheck("/health", endpointName: "http")
     .WithReference(basketService)
     .WithReference(catalogService)
     .WaitFor(catalogService);
+
+if (!string.IsNullOrWhiteSpace(otlpEndpoint))
+{
+    frontend.WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", otlpEndpoint);
+
+    if (!string.IsNullOrWhiteSpace(otlpProtocol))
+    {
+        frontend.WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", otlpProtocol);
+    }
+}
 
 builder.Build().Run();

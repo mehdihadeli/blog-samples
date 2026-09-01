@@ -11,4 +11,5 @@ providers:
     allowUiUpdates: true
     updateIntervalSeconds: 5 # how often Grafana will scan for changed dashboards
     options:
-      path: /var/lib/grafana/dashboards # path to dashboards on disk
+      # Source JSON files are imported through Grafana API so __inputs mappings work.
+      path: /var/lib/grafana/dashboards-imported

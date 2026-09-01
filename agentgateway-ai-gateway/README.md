@@ -84,11 +84,11 @@ This avoids rebuilding Langfuse with a custom base path.
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `yarp`                                                     | The only host-facing edge at `:5000`; routes LLM, browser/VS Code, MCP, A2A, Admin, metrics, and Keycloak paths to internal services.                                                             |
 | `agentgateway`                                             | Internal gateway: API-key LLM proxy (4000), browser OIDC/PKCE LLM proxy (4001), MCP multiplexer (3000), A2A proxy (3001), Admin UI (15000).                                                       |
-| `Mcp.Tickets`, `Mcp.Catalog`, `Mcp.Customers`              | Three custom .NET MCP servers written with the MCP C# SDK (streamable HTTP at `/mcp`).                                                                                                            |
+| `Mcp.Tickets`, `Mcp.Catalog`, `Mcp.Customers`              | Three custom .NET MCP servers written with the MCP C# SDK (streamable HTTP at `/mcp`), orchestrated locally by Aspire.                                                                            |
 | `mcp-everything`                                           | External stdio reference MCP server, run on the host via ToolHive and proxied to the gateway as streamable HTTP (`scripts/start-mcps.sh`).                                                        |
 | `mcp-sequentialthinking`                                   | External stdio Docker MCP server, run on the host via ToolHive and proxied to the gateway as streamable HTTP (`scripts/start-mcps.sh`).                                                           |
-| `Mcp.Time`                                                 | Compose-managed .NET MCP server exposing `get_current_time` over streamable HTTP at `mcp-time:8084/mcp`.                                                                                          |
-| `SupportAgent`                                             | A .NET A2A agent (a2a-net) hosted behind the gateway's A2A route; it answers via DeepSeek through the gateway.                                                                                    |
+| `Mcp.Time`                                                 | Aspire-managed .NET MCP server exposing `get_current_time` over streamable HTTP at port `8084`.                                                                                                   |
+| `SupportAgent`                                             | An Aspire-managed .NET A2A agent (a2a-net) hosted behind the gateway's A2A route; it answers via DeepSeek through the gateway.                                                                    |
 | `SupportChat`                                              | A console client that talks to the LLM, MCP tools, and the A2A agent exclusively through the gateway.                                                                                             |
 | `Keycloak`                                                 | Issues JWTs; the gateway validates them for MCP (`mcpAuthentication`) and uses claims for authorization.                                                                                          |
 | `otel-collector`, `tempo`, `loki`, `prometheus`, `grafana` | LGTM observability stack: traces, logs, metrics, dashboards. Grafana auto-provisions the official AgentGateway dashboard from `deployments/infra/grafana/dashboards/agentgateway-dashboard.json`. |
@@ -132,7 +132,7 @@ unsupported infrastructure is already deployed.
 ## Prerequisites
 
 - Docker + Docker Compose
-- .NET Aspire (optional, for local orchestration of .NET projects)
+- .NET Aspire CLI (recommended for local orchestration of the first-party .NET services)
 - [ToolHive](https://github.com/stacklok/toolhive) (`winget install stacklok.thv` on Windows / `brew install thv` on macOS)
 - .NET SDK 10 (only if you run the console client / build locally)
 - A DeepSeek API key
@@ -144,20 +144,22 @@ unsupported infrastructure is already deployed.
 cp deployments/.env.example deployments/.env   # set DEEPSEEK_API_KEY
 ./scripts/start-mcps.sh
 docker compose -f deployments/docker-compose.yaml up -d --build
+aspire start --apphost src/AppHost/AppHost.csproj --non-interactive --nologo
 ```
 
-For local .NET development, run the Aspire AppHost instead. It orchestrates
-the four first-party MCP projects, SupportAgent, and SupportChat as processes
-with service health and the Aspire dashboard. Infrastructure and AgentGateway
-remain available through the Compose deployment above.
+For local .NET development, Aspire owns the four first-party MCP projects,
+SupportAgent, and SupportChat as processes with service health and the Aspire
+dashboard. Docker Compose runs AgentGateway, YARP, Keycloak, and observability
+infrastructure; its host aliases route gateway traffic to the Aspire services
+on ports 8081-8084 and 9999.
 
 ```bash
-dotnet run --project src/AppHost/AppHost.csproj
+aspire run --apphost src/AppHost/AppHost.csproj
 ```
 
-Use Compose when you need the complete containerized deployment. Do not run
-the Compose MCP services and the Aspire MCP projects on the same host ports at
-the same time.
+The Compose file intentionally does not build the first-party MCP or A2A
+services. Do not run older Compose containers for those services alongside
+Aspire projects on the same host ports.
 
 Optional: add per-user Envoy rate limiting (adds the ratelimit service + Redis
 and switches the gateway config to its remote-ratelimit variant):
@@ -168,8 +170,8 @@ docker compose -f deployments/docker-compose.yaml \
 ```
 
 The script starts the external `everything` and `sequentialthinking` MCP
-servers on the host with ToolHive. Docker Compose manages the gateway, the
-four .NET MCP servers, Keycloak, and observability. Stop the MCP proxies with
+servers on the host with ToolHive. Docker Compose manages the gateway,
+Keycloak, and observability; Aspire manages the first-party .NET services. Stop the MCP proxies with
 `./scripts/stop-mcps.sh`; stop the Compose stack manually with the matching
 `docker compose ... down` command.
 
@@ -194,11 +196,12 @@ DEEPSEEK_ENDPOINT=api.deepseek.com:443
 ```
 
 From `samples/agentgateway-ai-gateway`, start the external ToolHive MCP
-proxies first, then start the Compose stack:
+proxies first, then start the Compose stack, then start the Aspire AppHost:
 
 ```bash
 ./scripts/start-mcps.sh
 docker compose -f deployments/docker-compose.yaml up -d --build
+aspire start --apphost src/AppHost/AppHost.csproj --non-interactive --nologo
 ```
 
 On Windows, the simplest validated path is Git Bash with the host Python
@@ -231,15 +234,16 @@ Tests that call the real DeepSeek provider are skipped when
 
 MCP servers can reach the gateway two ways in this sample:
 
-| Runtime                   | Used for                                                  | Why                                                                                                                                                                               |
-| ------------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **ToolHive (host)**       | `mcp-everything` (third-party)                            | It is stdio-only and npx-based. `thv run` wraps it in a streamable HTTP proxy; `everything` has no Docker image at all, so ToolHive builds one on demand via its `npx://` scheme. |
-| **Direct HTTP (compose)** | `mcp-tickets`, `mcp-catalog`, `mcp-customers`, `mcp-time` | These services are built from source and natively speak streamable HTTP (`app.MapMcp("/mcp")`). Compose owns their lifecycle and Docker-network connectivity.                     |
+| Runtime                       | Used for                                                                   | Why                                                                                                                                                                                                                               |
+| ----------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **ToolHive (host)**           | `mcp-everything`, `mcp-sequentialthinking` (third-party)                   | These workloads are run outside Compose and exposed as streamable HTTP proxies by `thv run`. They stay host-managed, which is useful for third-party stdio-oriented MCP servers that you do not want to fold into the main stack. |
+| **Direct HTTP (Aspire host)** | `mcp-tickets`, `mcp-catalog`, `mcp-customers`, `mcp-time`, `support-agent` | These services are built from source and natively speak streamable HTTP or A2A over HTTP. Aspire owns their local process lifecycle and binds them to fixed host ports that AgentGateway reaches through Docker host aliases.     |
 
 Rule of thumb:
 
 - Third-party MCP that ships as stdio/npx/pip only → **ToolHive** (or a container plus a proxy sidecar if you must run it in-cluster).
-- Your own MCP, or any MCP that natively exposes streamable HTTP → **direct HTTP in compose**.
+- Your own MCP, or any MCP that natively exposes streamable HTTP → **direct HTTP**, and for local development let **Aspire** own the process lifecycle.
+- Use full Compose for those services only when you need container-packaging or deployment validation.
 - Trade-off to remember: ToolHive workloads are **not** managed by compose. If the terminal closes or the machine reboots, re-run `./scripts/start-mcps.sh` to bring the proxies back.
 
 ## Security approaches and authentication
