@@ -8,9 +8,9 @@ services:
     restart: unless-stopped
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     environment:
-      - ASPIRE_OTLP_ENDPOINT=${ASPIRE_OTLP_ENDPOINT:-host.docker.internal:16224}
+      - "ASPIRE_OTLP_ENDPOINT=${ASPIRE_OTLP_ENDPOINT:-http://host.docker.internal:16223}"
       - ASPIRE_API_KEY=${ASPIRE_API_KEY:-}
-      - ASPIRE_INSECURE=false
+      - ASPIRE_INSECURE=true
       - PROMETHEUS_ENDPOINT=http://prometheus:9090/api/v1/otlp
       - LOKI_ENDPOINT=http://loki:3100/otlp
       - TEMPO_URL=tempo:4317

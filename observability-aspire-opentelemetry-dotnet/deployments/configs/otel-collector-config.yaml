@@ -73,7 +73,8 @@ exporters:
     headers:
       x-otlp-api-key: "${env:ASPIRE_API_KEY}"
     tls:
-      # Read whether the Aspire endpoint should use insecure transport.
+      # Use true for the default HTTP dashboard endpoint on port 16223.
+      # Override to false when targeting the HTTPS dashboard profile on 16224.
       insecure: ${env:ASPIRE_INSECURE}
       # Allow development certificates when TLS is enabled.
       insecure_skip_verify: true

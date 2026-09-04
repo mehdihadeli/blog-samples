@@ -32,6 +32,49 @@ If using Visual Studio, open the solution file `AspireShop.slnx` and launch/debu
 
 If using the .NET CLI, run `dotnet run` from the `AspireShop.AppHost` directory.
 
+## How telemetry flows in this sample
+
+This repository uses two different runtime surfaces:
+
+- The **Aspire AppHost** runs the .NET services and the Aspire Dashboard on the host machine.
+- The **Docker Compose stack** under `deployments/docker-compose` runs the observability infrastructure: the OpenTelemetry Collector, Prometheus, Tempo, Loki, Grafana, MinIO, Elasticsearch, and Kibana.
+
+### Default Aspire behavior
+
+When you start the app through `AspireShop.AppHost` without overriding `OTEL_EXPORTER_OTLP_ENDPOINT`, Aspire injects an OTLP endpoint for each service at runtime and points it to the Aspire Dashboard. In that mode, telemetry flows directly to the dashboard:
+
+`service -> Aspire Dashboard`
+
+That is why Aspire can show logs, traces, and metrics even when no collector is involved.
+
+### Collector-routed behavior
+
+When you set `OTEL_EXPORTER_OTLP_ENDPOINT` to the local Collector, for example `http://localhost:4317`, each service sends telemetry to the Collector instead of directly to the dashboard:
+
+`service -> Collector`
+
+From there, the Collector fans telemetry out to the configured backends:
+
+- traces -> Tempo and Aspire Dashboard
+- metrics -> Prometheus and Aspire Dashboard
+- logs -> Loki, Elasticsearch, and Aspire Dashboard
+
+That means telemetry is **not** sent twice from the service process. The service sends once to the Collector, and the Collector forwards copies to the downstream systems.
+
+### How the Collector reaches the Aspire Dashboard
+
+The Aspire Dashboard is not defined as a Docker Compose service because it is started by the AppHost on the host machine. The Collector container reaches that host process through `host.docker.internal`.
+
+The default Docker Compose settings assume the AppHost is using its HTTP profile, so the Collector exports to:
+
+- `ASPIRE_OTLP_ENDPOINT=http://host.docker.internal:16223`
+- `ASPIRE_INSECURE=true`
+
+If you run the AppHost with its HTTPS profile instead, override those values before starting Compose:
+
+- `ASPIRE_OTLP_ENDPOINT=https://host.docker.internal:16224`
+- `ASPIRE_INSECURE=false`
+
 ## Send test telemetry through the OTEL Collector
 
 The local Collector listens on:
