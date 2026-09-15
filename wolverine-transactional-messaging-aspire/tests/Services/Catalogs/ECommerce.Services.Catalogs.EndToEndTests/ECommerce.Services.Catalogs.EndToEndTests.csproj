@@ -1,9 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="..\..\..\..\src\Services\Catalogs\ECommerce.Services.Catalogs.Api\ECommerce.Services.Catalogs.Api.csproj" />
-    <ProjectReference Include="..\..\..\..\src\Services\Catalogs\ECommerce.Services.Catalogs\ECommerce.Services.Catalogs.csproj" />
     <ProjectReference Include="..\..\..\Shared\Tests.Shared\Tests.Shared.csproj" />
-  </ItemGroup>
-  <ItemGroup>
   </ItemGroup>
 </Project>

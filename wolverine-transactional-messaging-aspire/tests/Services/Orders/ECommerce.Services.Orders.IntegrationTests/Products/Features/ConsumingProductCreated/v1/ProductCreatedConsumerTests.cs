@@ -1,5 +1,3 @@
-using System.Net;
-using System.Net.Http.Json;
 using BuildingBlocks.Core.Messages;
 using ECommerce.Services.Orders.Products.Models;
 using ECommerce.Services.Orders.Shared.Data;
@@ -64,7 +62,7 @@ public class ProductCreatedConsumerTests(OrdersSharedFixture sharedFixture)
     }
 
     [Fact]
-    public async Task should_expose_imported_product_through_api_after_consuming()
+    public async Task should_persist_imported_product_after_consuming()
     {
         var message = OrdersTestData.NewProductCreatedEnvelope();
         var envelope = message.ToEnvelope();
@@ -72,7 +70,7 @@ public class ProductCreatedConsumerTests(OrdersSharedFixture sharedFixture)
         // Act — publish full MessageEnvelope<ProductCreatedV1> via IMessageBus
         await PublishEnvelopeAsync(envelope);
 
-        // Assert — API serves the imported product
+        // Assert — persisted product is available to the service's read path
         var importedProduct = await WaitForImportedProductResponseAsync(message.ProductId);
 
         importedProduct.ShouldNotBeNull();
@@ -161,17 +159,21 @@ public class ProductCreatedConsumerTests(OrdersSharedFixture sharedFixture)
         await SharedFixture.WaitUntilConditionMet(
             async () =>
             {
-                var response = await SharedFixture.GuestClient.GetAsync("/api/v1/orders/products");
-
-                if (response.StatusCode != HttpStatusCode.OK)
-                {
-                    return false;
-                }
-
-                var products = await response.Content.ReadFromJsonAsync<
-                    List<ImportedProductResult>
-                >();
-                importedProduct = products?.SingleOrDefault(x => x.Id == productId);
+                await using var scope = SharedFixture.ServiceProvider.CreateAsyncScope();
+                var dbContext = scope.ServiceProvider.GetRequiredService<OrdersDbContext>();
+                var product = await dbContext.ImportedProducts.FindAsync(
+                    [productId],
+                    TestCancellationToken
+                );
+                importedProduct = product is null
+                    ? null
+                    : new ImportedProductResult(
+                        product.Id,
+                        product.Code,
+                        product.Name,
+                        product.Price,
+                        product.SourceCreatedAtUtc
+                    );
                 return importedProduct is not null;
             },
             timeoutSecond: 30,

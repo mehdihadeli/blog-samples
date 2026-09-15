@@ -20,9 +20,23 @@ public static class OrdersTestData
             )
         );
 
+    private static readonly Faker<ImportedProductData> ImportedProductFaker =
+        new Faker<ImportedProductData>().CustomInstantiator(faker => new ImportedProductData(
+            faker.Random.Guid(),
+            $"catalog-{faker.Random.AlphaNumeric(10).ToLowerInvariant()}",
+            $"{faker.Commerce.ProductAdjective()} {faker.Commerce.ProductName()}",
+            decimal.Round(faker.Random.Decimal(5, 200), 2),
+            faker.Date.RecentOffset(10).UtcDateTime
+        ));
+
     public static ProductCreatedEnvelopeData NewProductCreatedEnvelope()
     {
         return ProductCreatedEnvelopeFaker.Generate();
+    }
+
+    public static ImportedProductData NewImportedProduct()
+    {
+        return ImportedProductFaker.Generate();
     }
 }
 
@@ -46,3 +60,11 @@ public sealed record ProductCreatedEnvelopeData(
         );
     }
 }
+
+public sealed record ImportedProductData(
+    Guid ProductId,
+    string Code,
+    string Name,
+    decimal Price,
+    DateTime CreatedAtUtc
+);

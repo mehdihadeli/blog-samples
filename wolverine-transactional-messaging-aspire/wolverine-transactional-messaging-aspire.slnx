@@ -27,11 +27,13 @@
   <Folder Name="/tests/" />
   <Folder Name="/tests/Services/" />
   <Folder Name="/tests/Services/Catalogs/">
+    <Project Path="tests/Services/Catalogs/ECommerce.Services.Catalogs.EndToEndTests/ECommerce.Services.Catalogs.EndToEndTests.csproj" />
     <Project Path="tests/Services/Catalogs/ECommerce.Services.Catalogs.IntegrationTests/ECommerce.Services.Catalogs.IntegrationTests.csproj" />
     <Project Path="tests/Services/Catalogs/ECommerce.Services.Catalogs.TestShared/ECommerce.Services.Catalogs.TestShared.csproj" />
     <Project Path="tests/Services/Catalogs/ECommerce.Services.Catalogs.UnitTests/ECommerce.Services.Catalogs.UnitTests.csproj" />
   </Folder>
   <Folder Name="/tests/Services/Orders/">
+    <Project Path="tests/Services/Orders/ECommerce.Services.Orders.EndToEndTests/ECommerce.Services.Orders.EndToEndTests.csproj" />
     <Project Path="tests/Services/Orders/ECommerce.Services.Orders.IntegrationTests/ECommerce.Services.Orders.IntegrationTests.csproj" />
     <Project Path="tests/Services/Orders/ECommerce.Services.Orders.TestShared/ECommerce.Services.Orders.TestShared.csproj" />
     <Project Path="tests/Services/Orders/ECommerce.Services.Orders.UnitTests/ECommerce.Services.Orders.UnitTests.csproj" />

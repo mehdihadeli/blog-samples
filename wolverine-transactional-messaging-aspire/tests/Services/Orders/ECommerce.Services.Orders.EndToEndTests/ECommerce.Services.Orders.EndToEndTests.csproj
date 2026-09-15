@@ -1,10 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="..\..\..\..\src\Services\Orders\ECommerce.Services.Orders.Api\ECommerce.Services.Orders.Api.csproj" />
-    <ProjectReference Include="..\..\..\..\src\Services\Orders\ECommerce.Services.Orders\ECommerce.Services.Orders.csproj" />
     <ProjectReference Include="..\..\..\Shared\Tests.Shared\Tests.Shared.csproj" />
-  </ItemGroup>
-  <ItemGroup>
-    <PackageReference Include="Moq" />
   </ItemGroup>
 </Project>

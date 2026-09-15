@@ -1,10 +1,13 @@
-using System.Net;
-using System.Net.Http.Json;
 using BuildingBlocks.Core.Messages;
+using ECommerce.Services.Catalogs.Products.Features.CreatingProduct.v1;
+using ECommerce.Services.Catalogs.Products.Features.GettingProductReadModels.v1;
+using ECommerce.Services.Catalogs.Shared.ReadModels;
 using ECommerce.Services.Catalogs.TestShared;
 using ECommerce.Services.Shared.Contracts.IntegrationEvents;
 using ECommerce.Services.Shared.Contracts.InternalCommands;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace ECommerce.Services.Catalogs.IntegrationTests.Products.Features.CreatingProduct.v1;
 
@@ -27,12 +30,7 @@ public class CreateProductTests(CatalogsSharedFixture sharedFixture)
         await SharedFixture.ShouldPublishing<MessageEnvelope<ProductCreatedV1>>(
             async () =>
             {
-                var response = await SharedFixture.GuestClient.PostAsJsonAsync(
-                    "/api/v1/catalogs/products",
-                    request
-                );
-
-                Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+                await CreateProductAsync(request);
             },
             TestCancellationToken,
             ignoreMessageTypes: IgnoreScheduledInternalCommands
@@ -51,12 +49,7 @@ public class CreateProductTests(CatalogsSharedFixture sharedFixture)
         await SharedFixture.ShouldProcessingOutboxMessage<MessageEnvelope<ProductCreatedV1>>(
             async () =>
             {
-                var response = await SharedFixture.GuestClient.PostAsJsonAsync(
-                    "/api/v1/catalogs/products",
-                    request
-                );
-
-                Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+                await CreateProductAsync(request);
             },
             ignoreMessageTypes: IgnoreScheduledInternalCommands,
             cancellationToken: TestCancellationToken
@@ -72,35 +65,19 @@ public class CreateProductTests(CatalogsSharedFixture sharedFixture)
 
         // Act + Assert — TrackActivity: after publishing, the internal command
         // ProjectProductReadModel is processed successfully (MessageSucceeded) and its
-        // side-effect (Mongo read model upsert) is visible through the API.
+        // side-effect (Mongo read model upsert) is visible through the read model repository.
         await SharedFixture.ShouldProcessingInternalCommand<ProjectProductReadModel>(
             async () =>
             {
-                var response = await SharedFixture.GuestClient.PostAsJsonAsync(
-                    "/api/v1/catalogs/products",
-                    request
-                );
-
-                Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-
-                created = await response.Content.ReadFromJsonAsync<CreateProductResult>();
-                Assert.NotNull(created);
+                created = await CreateProductAsync(request);
             },
             async () =>
             {
-                ProductReadModelResult? readModel = null;
+                ProductReadModel? readModel = null;
                 await SharedFixture.WaitUntilConditionMet(
                     async () =>
                     {
-                        var readModelResponse = await SharedFixture.GuestClient.GetAsync(
-                            $"/api/v1/catalogs/products/read-model/{created!.Id}"
-                        );
-
-                        if (readModelResponse.StatusCode != HttpStatusCode.OK)
-                            return false;
-
-                        readModel =
-                            await readModelResponse.Content.ReadFromJsonAsync<ProductReadModelResult>();
+                        readModel = await GetProductReadModelAsync(created!.Id);
                         return readModel is not null;
                     },
                     cancellationToken: TestCancellationToken
@@ -135,15 +112,7 @@ public class CreateProductTests(CatalogsSharedFixture sharedFixture)
         await SharedFixture.ShouldPublishing<MessageEnvelope<ProductCreatedV1>>(
             async () =>
             {
-                var response = await SharedFixture.GuestClient.PostAsJsonAsync(
-                    "/api/v1/catalogs/products",
-                    request
-                );
-
-                Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-
-                created = await response.Content.ReadFromJsonAsync<CreateProductResult>();
-                Assert.NotNull(created);
+                created = await CreateProductAsync(request);
             },
             cancellationToken: TestCancellationToken
         );
@@ -156,19 +125,11 @@ public class CreateProductTests(CatalogsSharedFixture sharedFixture)
             Assert.Equal(request.Price, entity.Price);
         });
 
-        ProductReadModelResult? readModel = null;
+        ProductReadModel? readModel = null;
         await SharedFixture.WaitUntilConditionMet(
             async () =>
             {
-                var readModelResponse = await SharedFixture.GuestClient.GetAsync(
-                    $"/api/v1/catalogs/products/read-model/{created!.Id}"
-                );
-
-                if (readModelResponse.StatusCode != HttpStatusCode.OK)
-                    return false;
-
-                readModel =
-                    await readModelResponse.Content.ReadFromJsonAsync<ProductReadModelResult>();
+                readModel = await GetProductReadModelAsync(created!.Id);
                 return readModel is not null;
             },
             cancellationToken: TestCancellationToken
@@ -181,14 +142,26 @@ public class CreateProductTests(CatalogsSharedFixture sharedFixture)
         Assert.Equal(request.Price, readModel.Price);
     }
 
-    private sealed record CreateProductResult(Guid Id, string Code, string Name, decimal Price);
+    private async Task<CreateProductResult> CreateProductAsync(CreateProductRequestData request)
+    {
+        await using var scope = SharedFixture.ServiceProvider.CreateAsyncScope();
+        var sender = scope.ServiceProvider.GetRequiredService<ISender>();
 
-    private sealed record ProductReadModelResult(
-        Guid Id,
-        string Code,
-        string Name,
-        decimal Price,
-        DateTime CreatedAtUtc,
-        DateTime ProjectedAtUtc
-    );
+        var result = await sender.Send(
+            new CreateProduct(request.Code, request.Name, request.Price),
+            TestCancellationToken
+        );
+
+        return new CreateProductResult(result.Id, result.Code, result.Name, result.Price);
+    }
+
+    private async Task<ProductReadModel?> GetProductReadModelAsync(Guid productId)
+    {
+        await using var scope = SharedFixture.ServiceProvider.CreateAsyncScope();
+        var sender = scope.ServiceProvider.GetRequiredService<ISender>();
+
+        return await sender.Send(new GetProductReadModelById(productId), TestCancellationToken);
+    }
+
+    private sealed record CreateProductResult(Guid Id, string Code, string Name, decimal Price);
 }

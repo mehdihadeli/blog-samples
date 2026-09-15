@@ -1,8 +1,6 @@
-using System.Net;
-using System.Net.Http.Json;
 using ECommerce.Services.Orders.Products.Models;
-using Microsoft.Extensions.Hosting;
-using Wolverine;
+using ECommerce.Services.Orders.TestShared;
+using Microsoft.EntityFrameworkCore;
 
 namespace ECommerce.Services.Orders.IntegrationTests.Products.Features.GettingImportedProducts.v1;
 
@@ -12,40 +10,31 @@ public class GetImportedProductsTests(OrdersSharedFixture sharedFixture)
     [Fact]
     public async Task GetProducts_ShouldReturnSeededImportedProduct()
     {
-        var productId = Guid.NewGuid();
-        var createdAt = new DateTime(2026, 7, 9, 10, 0, 0, DateTimeKind.Utc);
+        var product = OrdersTestData.NewImportedProduct();
         await ExecuteOrdersDbContextAsync(async dbContext =>
         {
             dbContext.ImportedProducts.Add(
                 ImportedProduct.Create(
-                    productId,
-                    "catalog-201",
-                    "Imported Basket",
-                    22.40m,
-                    createdAt
+                    product.ProductId,
+                    product.Code,
+                    product.Name,
+                    product.Price,
+                    product.CreatedAtUtc
                 )
             );
             await dbContext.SaveChangesAsync();
         });
 
-        var response = await SharedFixture.GuestClient.GetAsync("/api/v1/orders/products");
+        var products = await ExecuteOrdersDbContextAsync(dbContext =>
+            dbContext
+                .ImportedProducts.OrderBy(product => product.Name)
+                .ToListAsync(TestCancellationToken)
+        );
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-
-        var products = await response.Content.ReadFromJsonAsync<List<ImportedProductResult>>();
-        Assert.NotNull(products);
-        Assert.Single(products!);
-        Assert.Equal(productId, products[0].Id);
-        Assert.Equal("catalog-201", products[0].Code);
-        Assert.Equal("Imported Basket", products[0].Name);
-        Assert.Equal(22.40m, products[0].Price);
+        Assert.Single(products);
+        Assert.Equal(product.ProductId, products[0].Id);
+        Assert.Equal(product.Code, products[0].Code);
+        Assert.Equal(product.Name, products[0].Name);
+        Assert.Equal(product.Price, products[0].Price);
     }
-
-    private sealed record ImportedProductResult(
-        Guid Id,
-        string Code,
-        string Name,
-        decimal Price,
-        DateTime ReceivedAtUtc
-    );
 }

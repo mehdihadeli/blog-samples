@@ -11,7 +11,8 @@ public sealed class CustomWebApplicationFactory<TEntryPoint> : WebApplicationFac
 {
     private readonly Dictionary<string, string?> _inMemoryConfigs =
         new(StringComparer.OrdinalIgnoreCase);
-    private readonly List<string> _overrideEnvKeysToDispose = [];
+    private readonly Dictionary<string, string?> _originalEnvironmentValues =
+        new(StringComparer.OrdinalIgnoreCase);
     private Action<IServiceCollection>? _testConfigureServices;
     private Action<IConfiguration>? _testConfiguration;
     private Action<WebHostBuilderContext, IConfigurationBuilder>? _testConfigureAppConfiguration;
@@ -56,7 +57,7 @@ public sealed class CustomWebApplicationFactory<TEntryPoint> : WebApplicationFac
 
         foreach (var (key, value) in keyValues)
         {
-            _overrideEnvKeysToDispose.Add(key);
+            _originalEnvironmentValues.TryAdd(key, Environment.GetEnvironmentVariable(key));
             Environment.SetEnvironmentVariable(key, value);
         }
 
@@ -76,6 +77,21 @@ public sealed class CustomWebApplicationFactory<TEntryPoint> : WebApplicationFac
         }
 
         return this;
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            foreach (var (key, value) in _originalEnvironmentValues)
+            {
+                Environment.SetEnvironmentVariable(key, value);
+            }
+
+            _originalEnvironmentValues.Clear();
+        }
+
+        base.Dispose(disposing);
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)

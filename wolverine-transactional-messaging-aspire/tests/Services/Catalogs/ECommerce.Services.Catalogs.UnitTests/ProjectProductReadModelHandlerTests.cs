@@ -13,15 +13,16 @@ public class ProjectProductReadModelHandlerTests
     public async Task Handle_ShouldUpsert_ProductReadModel()
     {
         var repository = new FakeProductReadRepository();
+        var product = CatalogsTestData.NewProjectedProduct();
         var before = DateTime.UtcNow;
 
         await ProjectProductReadModelHandler.Handle(
             new ProjectProductReadModel(
-                SampleData.ProductId,
-                CatalogsTestData.ProductCode,
-                CatalogsTestData.ProductName,
-                CatalogsTestData.ProductPrice,
-                SampleData.CreatedAtUtc
+                product.Id,
+                product.Code,
+                product.Name,
+                product.Price,
+                product.CreatedAtUtc
             ),
             repository,
             CancellationToken.None
@@ -30,11 +31,11 @@ public class ProjectProductReadModelHandlerTests
         var after = DateTime.UtcNow;
 
         Assert.NotNull(repository.LastUpserted);
-        Assert.Equal(SampleData.ProductId, repository.LastUpserted!.Id);
-        Assert.Equal(CatalogsTestData.ProductCode, repository.LastUpserted.Code);
-        Assert.Equal(CatalogsTestData.ProductName, repository.LastUpserted.Name);
-        Assert.Equal(CatalogsTestData.ProductPrice, repository.LastUpserted.Price);
-        Assert.Equal(SampleData.CreatedAtUtc, repository.LastUpserted.CreatedAtUtc);
+        Assert.Equal(product.Id, repository.LastUpserted!.Id);
+        Assert.Equal(product.Code, repository.LastUpserted.Code);
+        Assert.Equal(product.Name, repository.LastUpserted.Name);
+        Assert.Equal(product.Price, repository.LastUpserted.Price);
+        Assert.Equal(product.CreatedAtUtc, repository.LastUpserted.CreatedAtUtc);
         Assert.InRange(repository.LastUpserted.ProjectedAtUtc, before, after);
     }
 
