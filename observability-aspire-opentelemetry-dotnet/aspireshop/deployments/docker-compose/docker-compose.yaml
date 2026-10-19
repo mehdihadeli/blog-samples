@@ -4,7 +4,7 @@ services:
   #  Observability: OpenTelemetry Collector
   #######################################################
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:latest
+    image: otel/opentelemetry-collector-contrib:0.162.0
     restart: unless-stopped
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     environment:
@@ -30,7 +30,7 @@ services:
   #  Observability: Metrics (Prometheus)
   #######################################################
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.15.0
     restart: unless-stopped
     ports:
       - "9090:9090" # Prometheus UI and query API
@@ -46,7 +46,7 @@ services:
       - infrastructure
 
   node-exporter:
-    image: prom/node-exporter:latest
+    image: prom/node-exporter:v1.12.1
     platform: linux/amd64
     restart: unless-stopped
     volumes:
@@ -63,7 +63,7 @@ services:
       - infrastructure
 
   cadvisor:
-    image: gcr.io/cadvisor/cadvisor:latest
+    image: gcr.io/cadvisor/cadvisor:v0.55.1
     platform: linux/amd64
     restart: unless-stopped
     privileged: true
@@ -82,7 +82,7 @@ services:
   #  Observability: S3-Compatible Storage (MinIO)
   #######################################################
   minio:
-    image: minio/minio:latest
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     restart: unless-stopped
     command:
       - server
@@ -102,22 +102,20 @@ services:
       - infrastructure
 
   minio-bucket-creator:
-    image: minio/mc:latest
+    image: amazon/aws-cli:2.27.45
     restart: on-failure
     entrypoint:
       - /bin/sh
     command:
       - -c
       - |
-        /usr/bin/mc alias set myminio http://minio:9000 $${MINIO_USER} $${MINIO_PASSWORD}
-        /usr/bin/mc mb myminio/loki --ignore-existing
-        /usr/bin/mc anonymous set public myminio/loki
-        /usr/bin/mc mb myminio/tempo --ignore-existing
-        /usr/bin/mc anonymous set public myminio/tempo
+        aws --endpoint-url http://minio:9000 s3api head-bucket --bucket loki >/dev/null 2>&1 || aws --endpoint-url http://minio:9000 s3api create-bucket --bucket loki
+        aws --endpoint-url http://minio:9000 s3api head-bucket --bucket tempo >/dev/null 2>&1 || aws --endpoint-url http://minio:9000 s3api create-bucket --bucket tempo
         exit 0
     environment:
-      MINIO_USER: ${MINIO_USER:-minioadmin}
-      MINIO_PASSWORD: ${MINIO_PASSWORD:-minioadmin}
+      AWS_ACCESS_KEY_ID: ${MINIO_USER:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_PASSWORD:-minioadmin}
+      AWS_DEFAULT_REGION: us-east-1
     depends_on:
       minio:
         condition: service_started
@@ -128,7 +126,7 @@ services:
   #  Observability: Traces & Logs (Grafana Stack)
   #######################################################
   tempo:
-    image: grafana/tempo:latest
+    image: grafana/tempo:3.1.0
     restart: unless-stopped
     command: ["-config.file=/etc/tempo.yaml", "-config.expand-env=true"]
     environment:
@@ -146,7 +144,7 @@ services:
       - infrastructure
 
   loki:
-    image: grafana/loki:latest
+    image: grafana/loki:3.7.8
     restart: unless-stopped
     command: -config.file=/etc/loki/local-config.yaml -config.expand-env=true
     environment:
@@ -163,7 +161,7 @@ services:
       - infrastructure
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:13.2.4
     platform: linux/amd64
     restart: unless-stopped
     environment:

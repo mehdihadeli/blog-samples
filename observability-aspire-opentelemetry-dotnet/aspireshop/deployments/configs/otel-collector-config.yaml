@@ -106,6 +106,16 @@ extensions:
 service:
   # Activate the health extension defined above.
   extensions: [health_check]
+  # Expose Collector self-observability metrics for Prometheus scraping.
+  # The default binds to loopback, which other containers cannot reach.
+  telemetry:
+    metrics:
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
   pipelines:
     traces:
       # Receive traces through OTLP, enrich and batch them, then fan out.
