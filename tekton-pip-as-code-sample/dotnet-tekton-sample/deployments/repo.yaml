@@ -1,0 +1,17 @@
+apiVersion: "pipelinesascode.tekton.dev/v1alpha1"
+kind: Repository
+metadata:
+  name: dotnet-tekton-sample
+  namespace: default
+spec:
+  concurrency_limit: 1
+  url: "http://host.docker.internal:3000/admin/dotnet-tekton-sample" # MUST MATCH GITEA EXACTLY
+  git_provider:
+    type: "gitea"
+    url: "http://host.docker.internal:3000" # This stays as host.docker.internal for API access
+    secret:
+      name: "gitea-webhook-config"
+      key: "provider.token"
+    webhook_secret:
+      name: "gitea-webhook-config"
+      key: "webhook.secret"

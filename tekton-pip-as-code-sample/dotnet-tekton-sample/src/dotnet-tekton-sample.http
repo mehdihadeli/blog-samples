@@ -1,0 +1,6 @@
+@dotnet_tekton_sample_HostAddress = http://localhost:5170
+
+GET {{dotnet_tekton_sample_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

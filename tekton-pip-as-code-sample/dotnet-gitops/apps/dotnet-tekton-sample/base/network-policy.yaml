@@ -1,0 +1,16 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: dotnet-tekton-sample
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: dotnet-tekton-sample
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress: []

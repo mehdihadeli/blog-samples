@@ -1,0 +1,250 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: dotnet-devsecops
+  annotations:
+    pipelinesascode.tekton.dev/task: ../tasks/git-clone.yaml
+    pipelinesascode.tekton.dev/task-1: ../tasks/dotnet-build.yaml
+    pipelinesascode.tekton.dev/task-2: ../tasks/dotnet-verify.yaml
+    pipelinesascode.tekton.dev/task-3: ../tasks/gitleaks.yaml
+    pipelinesascode.tekton.dev/task-4: ../tasks/semgrep.yaml
+    pipelinesascode.tekton.dev/task-5: ../tasks/trivy-source.yaml
+    pipelinesascode.tekton.dev/task-6: ../tasks/cosign-sign.yaml
+    pipelinesascode.tekton.dev/task-7: ../tasks/cosign-verify.yaml
+    pipelinesascode.tekton.dev/task-8: ../tasks/gitops-update.yaml
+    pipelinesascode.tekton.dev/task-9: ../tasks/write-ci-evidence.yaml
+    pipelinesascode.tekton.dev/task-10: https://raw.githubusercontent.com/tektoncd/catalog/112374ce1262b133a77300bd8133445722605e04/task/hadolint/0.1/hadolint.yaml
+    pipelinesascode.tekton.dev/task-11: https://raw.githubusercontent.com/tektoncd/catalog/112374ce1262b133a77300bd8133445722605e04/task/buildah/0.9/buildah.yaml
+spec:
+  description: Trusted-branch DevSecOps gates, candidate image build, keyed signatures, and GitOps publication. Image scanning is temporarily disabled. Argo CD deploys separately.
+  params:
+    - name: repo-url
+    - name: revision
+    - name: branch
+      default: main
+    - name: project-directory
+      default: src
+    - name: test-project
+    - name: sdk-image
+      default: mcr.microsoft.com/dotnet/sdk:10.0
+    - name: dockerfile
+      default: Dockerfile
+    - name: builder-image
+      default: quay.io/buildah/stable:v1.40.1
+    - name: image-repository
+    - name: registry-tls-verify
+      default: "true"
+    - name: registry-insecure
+      default: "false"
+    - name: signing-password-secret
+      default: cosign-signing-key
+    - name: gitops-url
+    - name: gitops-branch
+      default: main
+    - name: gitops-manifest-path
+      default: apps/dotnet-tekton-sample/overlays/local/kustomization.yaml
+    - name: gitops-image-name
+      default: dotnet-tekton-sample
+  workspaces:
+    - name: shared-workspace
+    - name: registry-auth
+    - name: signing-key
+    - name: public-key
+    - name: gitops-auth
+  results:
+    - name: verified-image
+      value: $(tasks.verify-image.results.verified-image)
+    - name: gitops-commit
+      value: $(tasks.publish-gitops.results.commit)
+    - name: test-count
+      value: $(tasks.verify-dotnet.results.test-count)
+  tasks:
+    - name: fetch-repository
+      taskRef:
+        name: git-clone
+      params:
+        - name: url
+          value: $(params.repo-url)
+        - name: revision
+          value: $(params.revision)
+        - name: branch
+          value: $(params.branch)
+      workspaces:
+        - name: output
+          workspace: shared-workspace
+          subPath: source
+    - name: build-dotnet
+      runAfter: [fetch-repository]
+      taskRef:
+        name: dotnet-build
+      params:
+        - name: sdk-image
+          value: $(params.sdk-image)
+        - name: project-directory
+          value: $(params.project-directory)
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+          subPath: source
+    - name: verify-dotnet
+      runAfter: [build-dotnet]
+      taskRef:
+        name: dotnet-verify
+      params:
+        - name: sdk-image
+          value: $(params.sdk-image)
+        - name: project-directory
+          value: $(params.project-directory)
+        - name: test-project
+          value: $(params.test-project)
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+          subPath: source
+        - name: reports
+          workspace: shared-workspace
+          subPath: reports
+    - name: scan-secrets
+      runAfter: [fetch-repository]
+      taskRef:
+        name: gitleaks
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+          subPath: source
+        - name: reports
+          workspace: shared-workspace
+          subPath: reports
+    - name: lint-dockerfile
+      runAfter: [fetch-repository]
+      taskRef:
+        name: hadolint
+      params:
+        - name: dockerfile-path
+          value: $(params.dockerfile)
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+          subPath: source
+    - name: scan-sast
+      runAfter: [verify-dotnet]
+      taskRef:
+        name: semgrep
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+          subPath: source
+        - name: reports
+          workspace: shared-workspace
+          subPath: reports
+    - name: scan-source
+      runAfter: [verify-dotnet]
+      taskRef:
+        name: trivy-source
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+          subPath: source
+        - name: reports
+          workspace: shared-workspace
+          subPath: reports
+    - name: build-image
+      runAfter: [verify-dotnet, scan-secrets, lint-dockerfile, scan-sast, scan-source]
+      taskRef:
+        name: buildah
+      params:
+        - name: IMAGE
+          value: $(params.image-repository):ci-$(tasks.fetch-repository.results.commit)
+        - name: BUILDER_IMAGE
+          value: $(params.builder-image)
+        - name: STORAGE_DRIVER
+          value: vfs
+        - name: DOCKERFILE
+          value: $(params.dockerfile)
+        - name: TLSVERIFY
+          value: $(params.registry-tls-verify)
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+          subPath: source
+        - name: dockerconfig
+          workspace: registry-auth
+    - name: sign-image
+      runAfter: [build-image]
+      taskRef:
+        name: cosign-sign
+      params:
+        - name: image
+          value: $(params.image-repository)@$(tasks.build-image.results.IMAGE_DIGEST)
+        - name: password-secret
+          value: $(params.signing-password-secret)
+        - name: registry-insecure
+          value: $(params.registry-insecure)
+      workspaces:
+        - name: registry-auth
+          workspace: registry-auth
+        - name: signing-key
+          workspace: signing-key
+        - name: reports
+          workspace: shared-workspace
+          subPath: reports
+    - name: verify-image
+      runAfter: [sign-image]
+      taskRef:
+        name: cosign-verify
+      params:
+        - name: image
+          value: $(params.image-repository)@$(tasks.build-image.results.IMAGE_DIGEST)
+        - name: registry-insecure
+          value: $(params.registry-insecure)
+      workspaces:
+        - name: registry-auth
+          workspace: registry-auth
+        - name: public-key
+          workspace: public-key
+        - name: reports
+          workspace: shared-workspace
+          subPath: reports
+    - name: publish-gitops
+      taskRef:
+        name: gitops-update
+      params:
+        - name: gitops-url
+          value: $(params.gitops-url)
+        - name: gitops-branch
+          value: $(params.gitops-branch)
+        - name: manifest-path
+          value: $(params.gitops-manifest-path)
+        - name: image-name
+          value: $(params.gitops-image-name)
+        - name: verified-image
+          value: $(tasks.verify-image.results.verified-image)
+        - name: source-url
+          value: $(params.repo-url)
+        - name: source-branch
+          value: $(params.branch)
+        - name: source-revision
+          value: $(tasks.fetch-repository.results.commit)
+      workspaces:
+        - name: gitops
+          workspace: shared-workspace
+          subPath: gitops
+        - name: gitops-auth
+          workspace: gitops-auth
+  finally:
+    - name: collect-evidence
+      taskRef:
+        name: write-ci-evidence
+      params:
+        - name: repository
+          value: $(params.repo-url)
+        - name: revision
+          value: $(params.revision)
+        - name: status
+          value: $(tasks.status)
+        - name: run-name
+          value: $(context.pipelineRun.name)
+      workspaces:
+        - name: reports
+          workspace: shared-workspace
+          subPath: reports

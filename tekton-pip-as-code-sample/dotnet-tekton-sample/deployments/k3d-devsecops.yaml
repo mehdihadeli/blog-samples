@@ -1,0 +1,19 @@
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: tekton-devsecops
+servers: 1
+agents: 0
+kubeAPI:
+  hostIP: 127.0.0.1
+  hostPort: "6550"
+registries:
+  config: |
+    mirrors:
+      "host.k3d.internal:3000":
+        endpoint:
+          - "http://host.docker.internal:3000"
+options:
+  kubeconfig:
+    updateDefaultKubeconfig: true
+    switchCurrentContext: false

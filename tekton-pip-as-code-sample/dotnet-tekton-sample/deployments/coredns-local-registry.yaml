@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns-custom
+  namespace: kube-system
+data:
+  local-registry.override: |
+    rewrite stop name exact host.k3d.internal host.docker.internal

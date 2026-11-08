@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd D:\\\\blog-writing2\\\\samples\\\\wolverine-transactional-messaging-aspire *)",
+      "Bash(rm -rf \"src/BuildingBlocks/BuildingBlocks.Abstractions/bin\")",
+      "Bash(mv \"src/BuildingBlocks/BuildingBlocks.Abstractions\" \"src/BuildingBlocks/BuildingBlocks.Core\")",
+      "Bash(cmd //c \"rmdir /s /q src\\\\BuildingBlocks\\\\BuildingBlocks.Abstractions\")"
+    ]
+  }
+}

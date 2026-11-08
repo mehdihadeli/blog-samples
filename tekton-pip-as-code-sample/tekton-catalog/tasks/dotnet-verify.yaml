@@ -1,0 +1,71 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: dotnet-verify
+spec:
+  description: Verify formatting and run a configured VSTest project; zero discovered tests fail the gate.
+  params:
+    - name: sdk-image
+      default: mcr.microsoft.com/dotnet/sdk:10.0
+    - name: project-directory
+      default: src
+    - name: test-project
+      description: Repository-relative VSTest test project or solution; required, never silently skipped
+  workspaces:
+    - name: source
+    - name: reports
+  results:
+    - name: test-count
+  stepTemplate:
+    env:
+      - name: PROJECT_DIRECTORY
+        value: $(params.project-directory)
+      - name: TEST_PROJECT
+        value: $(params.test-project)
+      - name: DOTNET_CLI_TELEMETRY_OPTOUT
+        value: "1"
+  steps:
+    - name: format
+      image: $(params.sdk-image)
+      workingDir: $(workspaces.source.path)
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        dotnet format "$PROJECT_DIRECTORY" --verify-no-changes --severity warn
+        dotnet format "$TEST_PROJECT" --verify-no-changes --severity warn
+    - name: test
+      image: $(params.sdk-image)
+      workingDir: $(workspaces.source.path)
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        dotnet test "$TEST_PROJECT" --configuration Release --warnaserror \
+          --logger 'trx;LogFileName=tests.trx' \
+          --results-directory "$(workspaces.reports.path)/tests"
+    - name: require-executed-tests
+      image: python:3.12-alpine
+      env:
+        - name: REPORTS_PATH
+          value: $(workspaces.reports.path)/tests
+        - name: RESULT_PATH
+          value: $(results.test-count.path)
+      script: |
+        #!/usr/bin/env python3
+        import os
+        from pathlib import Path
+        import xml.etree.ElementTree as ET
+
+        reports = list(Path(os.environ["REPORTS_PATH"]).glob("**/*.trx"))
+        if not reports:
+            raise SystemExit("No TRX reports produced")
+        executed = 0
+        for report in reports:
+            counters = ET.parse(report).find(".//{*}Counters")
+            if counters is None:
+                raise SystemExit("Missing TRX counters")
+            total = int(counters.attrib["executed"])
+            passed = int(counters.attrib["passed"])
+            if total == 0 or passed != total:
+                raise SystemExit("Each test report must contain executed, passing tests")
+            executed += total
+        Path(os.environ["RESULT_PATH"]).write_text(str(executed))

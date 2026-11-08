@@ -1,0 +1,32 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: dotnet-build
+spec:
+  params:
+    - name: sdk-image
+      type: string
+      description: .NET SDK container image used for the build
+      default: mcr.microsoft.com/dotnet/sdk:10.0
+    - name: project-directory
+      type: string
+      description: Directory containing the project or solution
+      default: .
+    - name: configuration
+      type: string
+      default: Release
+  workspaces:
+    - name: source
+  steps:
+    - name: build
+      image: $(params.sdk-image)
+      workingDir: $(workspaces.source.path)/$(params.project-directory)
+      env:
+        - name: CONFIGURATION
+          value: $(params.configuration)
+        - name: DOTNET_CLI_TELEMETRY_OPTOUT
+          value: "1"
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        dotnet build --configuration "$CONFIGURATION" --warnaserror

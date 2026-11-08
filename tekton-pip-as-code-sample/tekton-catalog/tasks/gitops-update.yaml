@@ -1,0 +1,94 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: gitops-update
+spec:
+  description: Commit a verified digest to a separate GitOps repository. No kubectl apply, Argo CD credentials, force push, or workload permissions.
+  params:
+    - name: gitops-url
+    - name: gitops-branch
+      default: main
+    - name: manifest-path
+      default: apps/dotnet-tekton-sample/overlays/local/kustomization.yaml
+    - name: image-name
+      default: dotnet-tekton-sample
+    - name: verified-image
+    - name: source-url
+    - name: source-branch
+      default: main
+    - name: source-revision
+  workspaces:
+    - name: gitops
+    - name: gitops-auth
+      readOnly: true
+  results:
+    - name: commit
+  stepTemplate:
+    env:
+      - name: GITOPS_URL
+        value: $(params.gitops-url)
+      - name: GITOPS_BRANCH
+        value: $(params.gitops-branch)
+      - name: MANIFEST_PATH
+        value: $(params.manifest-path)
+      - name: IMAGE_NAME
+        value: $(params.image-name)
+      - name: VERIFIED_IMAGE
+        value: $(params.verified-image)
+      - name: SOURCE_URL
+        value: $(params.source-url)
+      - name: SOURCE_BRANCH
+        value: $(params.source-branch)
+      - name: SOURCE_REVISION
+        value: $(params.source-revision)
+      - name: GITOPS_USERNAME_PATH
+        value: $(workspaces.gitops-auth.path)/username
+      - name: GITOPS_TOKEN_PATH
+        value: $(workspaces.gitops-auth.path)/token
+      - name: GIT_TERMINAL_PROMPT
+        value: "0"
+  steps:
+    - name: clone-gitops
+      image: alpine/git:2.47.2
+      script: |
+        #!/bin/sh
+        set -eu
+        case "$GITOPS_URL" in http://*|https://*) ;; *) exit 1 ;; esac
+        git -c credential.helper='!f() { printf "username=%s\npassword=%s\n" "$(cat "$GITOPS_USERNAME_PATH")" "$(cat "$GITOPS_TOKEN_PATH")"; }; f' \
+          clone --single-branch --branch "$GITOPS_BRANCH" -- "$GITOPS_URL" "$(workspaces.gitops.path)/repo"
+    - name: set-digest
+      image: mikefarah/yq:4.47.1
+      workingDir: $(workspaces.gitops.path)/repo
+      securityContext:
+        runAsUser: 0
+      script: |
+        #!/bin/sh
+        set -eu
+        case "$MANIFEST_PATH" in /*|*..*) echo 'Invalid manifest path'; exit 1 ;; esac
+        test -f "$MANIFEST_PATH"
+        test ! -L "$MANIFEST_PATH"
+        case "$(realpath "$MANIFEST_PATH")" in "$(pwd)"/*) ;; *) exit 1 ;; esac
+        printf '%s' "$VERIFIED_IMAGE" | grep -Eq '^.+@sha256:[a-f0-9]{64}$'
+        export IMAGE_REPOSITORY="${VERIFIED_IMAGE%@*}" IMAGE_DIGEST="${VERIFIED_IMAGE##*@}"
+        test "$(yq '[.images[] | select(.name == strenv(IMAGE_NAME))] | length' "$MANIFEST_PATH")" = 1
+        yq -i '(.images[] | select(.name == strenv(IMAGE_NAME))) |= (.newName = strenv(IMAGE_REPOSITORY) | .digest = strenv(IMAGE_DIGEST) | del(.newTag))' "$MANIFEST_PATH"
+    - name: commit-and-push
+      image: alpine/git:2.47.2
+      workingDir: $(workspaces.gitops.path)/repo
+      script: |
+        #!/bin/sh
+        set -eu
+        current_revision="$(git ls-remote "$SOURCE_URL" "refs/heads/$SOURCE_BRANCH" | cut -f1)"
+        if [ "$current_revision" != "$SOURCE_REVISION" ]; then
+          echo 'Source branch advanced; stale promotion rejected'
+          exit 1
+        fi
+        git config user.name tekton-gitops
+        git config user.email tekton-gitops@local.invalid
+        git add -- "$MANIFEST_PATH"
+        if ! git diff --cached --quiet; then
+          git commit -m "Promote $IMAGE_NAME from $SOURCE_REVISION"
+          git -c credential.helper='!f() { printf "username=%s\npassword=%s\n" "$(cat "$GITOPS_USERNAME_PATH")" "$(cat "$GITOPS_TOKEN_PATH")"; }; f' \
+            push origin "HEAD:refs/heads/$GITOPS_BRANCH"
+        fi
+        git rev-parse HEAD | tr -d '\n' > "$(results.commit.path)"

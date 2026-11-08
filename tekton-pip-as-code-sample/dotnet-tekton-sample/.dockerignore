@@ -1,0 +1,10 @@
+**/bin
+**/obj
+.git
+.tekton
+deployments
+tests
+artifacts
+*.md
+*.key
+*.env

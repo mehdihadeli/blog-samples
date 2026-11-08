@@ -1,0 +1,38 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: git-clone
+spec:
+  params:
+    - name: url
+      type: string
+    - name: revision
+      type: string
+      default: main
+    - name: branch
+      type: string
+      default: main
+  workspaces:
+    - name: output
+  results:
+    - name: commit
+      description: Exact checked-out commit SHA
+  steps:
+    - name: clone
+      image: alpine/git:2.47.2
+      env:
+        - name: REPOSITORY_URL
+          value: $(params.url)
+        - name: REVISION
+          value: $(params.revision)
+        - name: BRANCH
+          value: $(params.branch)
+        - name: CHECKOUT_PATH
+          value: $(workspaces.output.path)
+      script: |
+        #!/bin/sh
+        set -eu
+        git clone --no-checkout --branch "$BRANCH" -- "$REPOSITORY_URL" "$CHECKOUT_PATH"
+        git -C "$CHECKOUT_PATH" fetch origin "$REVISION"
+        git -C "$CHECKOUT_PATH" checkout --detach FETCH_HEAD
+        git -C "$CHECKOUT_PATH" rev-parse HEAD | tr -d '\n' > "$(results.commit.path)"

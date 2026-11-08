@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: dotnet-sample
+  namespace: argocd
+spec:
+  description: Deploy only the .NET sample from its dedicated GitOps repository.
+  sourceRepos:
+    - http://host.docker.internal:3000/admin/dotnet-gitops.git
+  destinations:
+    - namespace: dotnet-sample
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - group: apps
+      kind: Deployment
+    - group: ""
+      kind: Service
+    - group: networking.k8s.io
+      kind: NetworkPolicy

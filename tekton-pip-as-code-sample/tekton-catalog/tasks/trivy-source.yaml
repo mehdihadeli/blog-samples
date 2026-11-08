@@ -1,0 +1,29 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: trivy-source
+spec:
+  description: Scan restored NuGet assets, source secrets, and Docker/Kubernetes configuration. HIGH and CRITICAL findings fail.
+  params:
+    - name: scanner-image
+      default: aquasec/trivy:0.76.2
+    - name: severity
+      default: HIGH,CRITICAL
+  workspaces:
+    - name: source
+      readOnly: true
+    - name: reports
+  steps:
+    - name: scan
+      image: $(params.scanner-image)
+      workingDir: $(workspaces.source.path)
+      env:
+        - name: SEVERITY
+          value: $(params.severity)
+      script: |
+        #!/bin/sh
+        set -eu
+        mkdir -p "$(workspaces.reports.path)/security"
+        trivy fs --scanners vuln,secret,misconfig --skip-dirs .git \
+          --ignorefile /dev/null --severity "$SEVERITY" --exit-code 1 \
+          --format sarif --output "$(workspaces.reports.path)/security/trivy-source.sarif" .

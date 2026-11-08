@@ -1,0 +1,55 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: dotnet-build
+  annotations:
+    pipelinesascode.tekton.dev/task: "../tasks/git-clone.yaml"
+    pipelinesascode.tekton.dev/task-1: "../tasks/dotnet-build.yaml"
+spec:
+  params:
+    - name: repo-url
+      type: string
+      description: Git URL reachable from the Tekton task pod
+    - name: revision
+      type: string
+      default: main
+    - name: branch
+      type: string
+      default: main
+    - name: sdk-image
+      type: string
+      description: .NET SDK container image used for the build
+      default: mcr.microsoft.com/dotnet/sdk:10.0
+    - name: project-directory
+      type: string
+      description: Directory containing the project or solution
+      default: .
+  workspaces:
+    - name: shared-workspace
+  tasks:
+    - name: fetch-repository
+      taskRef:
+        name: git-clone
+      workspaces:
+        - name: output
+          workspace: shared-workspace
+      params:
+        - name: url
+          value: "$(params.repo-url)"
+        - name: revision
+          value: "$(params.revision)"
+        - name: branch
+          value: "$(params.branch)"
+    - name: build-dotnet-app
+      runAfter:
+        - fetch-repository
+      taskRef:
+        name: dotnet-build
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+      params:
+        - name: sdk-image
+          value: "$(params.sdk-image)"
+        - name: project-directory
+          value: "$(params.project-directory)"

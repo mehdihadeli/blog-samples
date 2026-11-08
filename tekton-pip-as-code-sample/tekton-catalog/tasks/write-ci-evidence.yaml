@@ -1,0 +1,50 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: write-ci-evidence
+spec:
+  description: Preserve run status and report checksums even when a gate fails. This summary is not SLSA provenance.
+  params:
+    - name: repository
+    - name: revision
+    - name: status
+    - name: run-name
+  workspaces:
+    - name: reports
+  steps:
+    - name: summarize
+      image: python:3.12-alpine
+      env:
+        - name: REPOSITORY
+          value: $(params.repository)
+        - name: REVISION
+          value: $(params.revision)
+        - name: STATUS
+          value: $(params.status)
+        - name: RUN_NAME
+          value: $(params.run-name)
+        - name: REPORTS_PATH
+          value: $(workspaces.reports.path)
+      script: |
+        #!/usr/bin/env python3
+        import hashlib
+        import json
+        import os
+        from pathlib import Path
+
+        root = Path(os.environ["REPORTS_PATH"])
+        reports = {}
+        for path in sorted(root.rglob("*")):
+            if path.is_file() and path.name != "ci-evidence.json":
+                reports[str(path.relative_to(root))] = hashlib.sha256(path.read_bytes()).hexdigest()
+        verified = root / "verified-image.txt"
+        evidence = {
+            "run": os.environ["RUN_NAME"],
+            "repository": os.environ["REPOSITORY"],
+            "revision": os.environ["REVISION"],
+            "status": os.environ["STATUS"],
+            "verifiedImage": verified.read_text() if verified.exists() else None,
+            "reportSha256": reports,
+        }
+        (root / "ci-evidence.json").write_text(json.dumps(evidence, indent=2) + "\n")
+        print(json.dumps(evidence, indent=2))

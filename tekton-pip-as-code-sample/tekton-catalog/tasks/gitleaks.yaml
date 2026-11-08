@@ -1,0 +1,24 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: gitleaks
+spec:
+  description: Scan complete fetched Git history with the current Gitleaks CLI and redacted SARIF output.
+  params:
+    - name: scanner-image
+      default: ghcr.io/gitleaks/gitleaks:v8.24.2
+  workspaces:
+    - name: source
+      readOnly: true
+    - name: reports
+  steps:
+    - name: scan
+      image: $(params.scanner-image)
+      workingDir: $(workspaces.source.path)
+      script: |
+        #!/bin/sh
+        set -eu
+        mkdir -p "$(workspaces.reports.path)/security"
+        git config --global --add safe.directory "$(workspaces.source.path)"
+        gitleaks git --redact --exit-code 1 --log-opts=--all \
+          --report-format sarif --report-path "$(workspaces.reports.path)/security/gitleaks.sarif" .
