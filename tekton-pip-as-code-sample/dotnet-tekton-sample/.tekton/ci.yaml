@@ -1,0 +1,29 @@
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: dotnet-sample-ci
+  annotations:
+    pipelinesascode.tekton.dev/on-cel-expression: '(event == "push" && body.ref == "refs/heads/main") || (event == "pull_request" && body.pull_request.base.ref == "main" && body.pull_request.head.repo.id == body.repository.id)'
+    pipelinesascode.tekton.dev/pipeline: http://host.docker.internal:3000/admin/tekton-catalog/raw/branch/main/pipelines/dotnet-ci.yaml
+spec:
+  taskRunTemplate:
+    serviceAccountName: tekton-ci
+  timeouts:
+    pipeline: 1h0m0s
+  pipelineRef:
+    name: dotnet-ci
+  params:
+    - name: repo-url
+      value: http://host.docker.internal:3000/admin/dotnet-tekton-sample.git
+    - name: revision
+      value: "{{ revision }}"
+    - name: project-directory
+      value: src
+  workspaces:
+    - name: shared-workspace
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 5Gi

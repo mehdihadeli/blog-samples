@@ -1,0 +1,137 @@
+name: local-gitlab-ci
+
+services:
+  gitea-configure:
+    image: ${PYTHON_IMAGE:-python:3.12-alpine}
+    network_mode: none
+    command: ["python", "/setup/configure.py"]
+    environment:
+      GITEA_HTTP_PORT: ${GITEA_HTTP_PORT:-3000}
+      GITEA_SSH_PORT: ${GITEA_SSH_PORT:-22222}
+    volumes:
+      - gitea-data:/data
+      - ./deployments/gitea:/setup:ro
+
+  gitea:
+    image: ${GITEA_IMAGE:-docker.gitea.com/gitea:28.3.0}
+    command:
+      - /bin/sh
+      - -c
+      - cp /setup/bootstrap-admin.sh /etc/s6/gitea/run && chmod +x /etc/s6/gitea/run && exec /usr/bin/s6-svscan /etc/s6
+    depends_on:
+      gitea-configure:
+        condition: service_completed_successfully
+    environment:
+      USER_UID: "1000"
+      USER_GID: "1000"
+      GITEA_ADMIN_USERNAME: ${GITEA_ADMIN_USERNAME:-admin}
+      GITEA_ADMIN_PASSWORD: ${GITEA_ADMIN_PASSWORD:-GiteaLocal123!}
+      GITEA_ADMIN_EMAIL: ${GITEA_ADMIN_EMAIL:-admin@example.test}
+    ports:
+      - "127.0.0.1:${GITEA_HTTP_PORT:-3000}:3000"
+      - "127.0.0.1:${GITEA_SSH_PORT:-22222}:22"
+    volumes:
+      - gitea-data:/data
+      - ./deployments/gitea:/setup:ro
+    networks: [ci]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  gitlab:
+    image: ${GITLAB_IMAGE:-gitlab/gitlab-ee:19.5.5-ee.0}
+    hostname: gitlab
+    shm_size: 256m
+    environment:
+      GITLAB_ROOT_PASSWORD: ${GITLAB_ROOT_PASSWORD:-LocalCi!9rF7p2Q}
+      GITLAB_HTTP_PORT: ${GITLAB_HTTP_PORT:-8929}
+      GITLAB_OMNIBUS_CONFIG: "from_file('/bootstrap/gitlab.rb')"
+    ports:
+      - "127.0.0.1:${GITLAB_HTTP_PORT:-8929}:8929"
+    volumes:
+      - gitlab-config:/etc/gitlab
+      - gitlab-logs:/var/log/gitlab
+      - gitlab-data:/var/opt/gitlab
+      - bootstrap-state:/bootstrap-state
+      - ./deployments/gitlab:/bootstrap:ro
+      - ./deployments/bootstrap/settings.json:/bootstrap-settings.json:ro
+    networks: [ci]
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8929/-/readiness?all=1"]
+      interval: 15s
+      timeout: 10s
+      start_period: 5m
+      retries: 60
+    restart: unless-stopped
+
+  bootstrap:
+    profiles: [setup]
+    image: local-gitlab-ci-tools:1.0
+    build:
+      context: ./deployments/bootstrap
+    command: ["python", "/sample/deployments/bootstrap/provision.py"]
+    environment:
+      GITEA_ADMIN_USERNAME: ${GITEA_ADMIN_USERNAME:-admin}
+      GITEA_ADMIN_PASSWORD: ${GITEA_ADMIN_PASSWORD:-GiteaLocal123!}
+      DOTNET_IMAGE: ${DOTNET_IMAGE:-mcr.microsoft.com/dotnet/sdk:10.0-alpine}
+      PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12-alpine}
+    volumes:
+      - ./:/sample:ro
+      - bootstrap-state:/state
+      - runner-config:/runner
+    networks: [ci]
+
+  runner:
+    image: ${GITLAB_RUNNER_IMAGE:-gitlab/gitlab-runner:alpine-v19.5.3}
+    volumes:
+      - runner-config:/etc/gitlab-runner
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks: [ci]
+    restart: unless-stopped
+
+  simulate:
+    profiles: [verify]
+    image: local-gitlab-ci-tools:1.0
+    build:
+      context: ./deployments/bootstrap
+    command: ["python", "-u", "/sample/deployments/bootstrap/simulate.py"]
+    environment:
+      GITEA_ADMIN_USERNAME: ${GITEA_ADMIN_USERNAME:-admin}
+      GITEA_ADMIN_PASSWORD: ${GITEA_ADMIN_PASSWORD:-GiteaLocal123!}
+    volumes:
+      - ./:/sample:ro
+      - bootstrap-state:/state:ro
+      - ./evidence:/evidence
+    networks: [ci]
+
+  sample-app:
+    profiles: [verify]
+    image: ${DOTNET_IMAGE:-mcr.microsoft.com/dotnet/sdk:10.0-alpine}
+    command: ["dotnet", "/app/Sample.Api.dll"]
+    environment:
+      ASPNETCORE_URLS: http://0.0.0.0:8080
+    ports:
+      - "127.0.0.1:${APP_HTTP_PORT:-5080}:8080"
+    volumes:
+      - ./evidence/publish:/app:ro
+    networks: [ci]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+networks:
+  ci:
+    name: local-gitlab-ci
+
+volumes:
+  gitea-data:
+  gitlab-config:
+  gitlab-logs:
+  gitlab-data:
+  bootstrap-state:
+  runner-config:

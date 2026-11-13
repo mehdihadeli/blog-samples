@@ -1,0 +1,11 @@
+include:
+  - remote: 'http://gitea:3000/admin/gitlab-templates/raw/branch/main/templates/dotnet-base.yml'
+
+.dotnet-build:
+  extends: .dotnet
+  script:
+    - dotnet restore "$DOTNET_TEST_PROJECT"
+    - dotnet build "$DOTNET_TEST_PROJECT" --configuration Release --no-restore
+  artifacts:
+    expire_in: 1 day
+    paths: [application/, source.json]

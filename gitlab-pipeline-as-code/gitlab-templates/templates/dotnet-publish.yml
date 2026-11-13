@@ -1,0 +1,12 @@
+include:
+  - remote: 'http://gitea:3000/admin/gitlab-templates/raw/branch/main/templates/dotnet-base.yml'
+
+.dotnet-publish:
+  extends: .dotnet
+  script:
+    - dotnet restore "$DOTNET_APP_PROJECT"
+    - dotnet publish "$DOTNET_APP_PROJECT" --configuration Release --no-build --no-restore --output publish
+    - echo "Published Gitea application; exact revision recorded in source.json"
+  artifacts:
+    expire_in: 1 day
+    paths: [publish/, source.json]

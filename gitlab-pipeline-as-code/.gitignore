@@ -1,0 +1,5 @@
+.env
+evidence/
+**/bin/
+**/obj/
+**/__pycache__/

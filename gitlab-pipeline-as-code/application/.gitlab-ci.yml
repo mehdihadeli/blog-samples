@@ -1,0 +1,6 @@
+include:
+  - remote: 'http://gitea:3000/admin/gitlab-templates/raw/branch/main/pipelines/dotnet-ci.yml'
+
+variables:
+  DOTNET_TEST_PROJECT: application/tests/Sample.Api.Tests.csproj
+  DOTNET_APP_PROJECT: application/src/Sample.Api.csproj

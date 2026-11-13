@@ -1,0 +1,23 @@
+{
+  "gitlab": {
+    "url": "http://gitlab:8929",
+    "namespace": "root",
+    "admin_email": "root@example.test",
+    "project": "dotnet-ci",
+    "description": "Docker-based CI for the application hosted in local Gitea"
+  },
+  "gitea": {
+    "url": "http://gitea:3000",
+    "repository": "dotnet-gitlab-sample",
+    "description": "Application source; builds run in GitLab CI, not Gitea Actions",
+    "branch": "main",
+    "templates_repository": "gitlab-templates",
+    "templates_branch": "main"
+  },
+  "runner": {
+    "description": "local-gitea-docker-runner",
+    "tags": ["docker", "dotnet"],
+    "network": "local-gitlab-ci",
+    "concurrent": 2
+  }
+}

@@ -1,0 +1,12 @@
+include:
+  - remote: 'http://gitea:3000/admin/gitlab-templates/raw/branch/main/templates/dotnet-base.yml'
+
+.dotnet-test:
+  extends: .dotnet
+  script:
+    - dotnet restore "$DOTNET_TEST_PROJECT"
+    - dotnet test "$DOTNET_TEST_PROJECT" --configuration Release --no-build --no-restore --logger "trx;LogFileName=tests.trx" --results-directory "$CI_PROJECT_DIR/TestResults"
+  artifacts:
+    when: always
+    expire_in: 1 day
+    paths: [TestResults/]

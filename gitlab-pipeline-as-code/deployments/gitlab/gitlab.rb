@@ -1,0 +1,16 @@
+external_url "http://localhost:#{ENV.fetch('GITLAB_HTTP_PORT', '8929')}"
+nginx['listen_port'] = 8929
+nginx['listen_https'] = false
+letsencrypt['enable'] = false
+gitlab_rails['initial_root_password'] = ENV.fetch('GITLAB_ROOT_PASSWORD')
+gitlab_rails['gitlab_signup_enabled'] = false
+gitlab_rails['time_zone'] = 'UTC'
+gitlab_rails['usage_ping_enabled'] = false
+gitlab_kas['enable'] = false
+registry['enable'] = false
+prometheus_monitoring['enable'] = false
+puma['worker_processes'] = 0
+puma['per_worker_max_memory_mb'] = 3072
+puma['min_threads'] = 2
+puma['max_threads'] = 4
+sidekiq['concurrency'] = 5

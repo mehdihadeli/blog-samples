@@ -1,0 +1,46 @@
+include:
+  - remote: 'http://gitea:3000/admin/gitlab-templates/raw/branch/main/templates/gitea-source.yml'
+  - remote: 'http://gitea:3000/admin/gitlab-templates/raw/branch/main/templates/dotnet-build.yml'
+  - remote: 'http://gitea:3000/admin/gitlab-templates/raw/branch/main/templates/dotnet-test.yml'
+  - remote: 'http://gitea:3000/admin/gitlab-templates/raw/branch/main/templates/dotnet-publish.yml'
+
+workflow:
+  name: Gitea application CI
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "trigger"'
+    - when: never
+
+stages: [fetch, build, test, publish]
+
+default:
+  tags: [docker]
+  timeout: 15m
+
+variables:
+  GIT_STRATEGY: empty
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+  NUGET_PACKAGES: "$CI_PROJECT_DIR/.nuget/packages"
+
+fetch-source:
+  extends: .gitea-source
+  stage: fetch
+
+build:
+  extends: .dotnet-build
+  stage: build
+  needs: [fetch-source]
+
+test:
+  extends: .dotnet-test
+  stage: test
+  needs: [build]
+
+publish:
+  extends: .dotnet-publish
+  stage: publish
+  needs:
+    - job: build
+      artifacts: true
+    - job: test
+      artifacts: false

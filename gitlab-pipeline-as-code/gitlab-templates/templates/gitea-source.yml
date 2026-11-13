@@ -1,0 +1,48 @@
+.gitea-source:
+  image: $PYTHON_IMAGE
+  script:
+    - |
+      python - <<'PY'
+      import json
+      import os
+      from pathlib import Path
+      import re
+      import shutil
+      import tarfile
+      import tempfile
+      import urllib.request
+
+      payload = json.loads(Path(os.environ["TRIGGER_PAYLOAD"]).read_text())
+      repository = os.environ["GITEA_REPOSITORY"]
+      if payload.get("repository", {}).get("full_name") != repository:
+          raise SystemExit("Unexpected source repository")
+      expected_ref = os.environ["CI_COMMIT_REF_NAME"]
+      if payload.get("ref") not in {expected_ref, "refs/heads/" + expected_ref}:
+          raise SystemExit("Unexpected CI configuration branch")
+      revision = payload.get("after", "")
+      if not re.fullmatch(r"[0-9a-f]{40}", revision) or set(revision) == {"0"}:
+          raise SystemExit("Invalid pushed commit SHA")
+      archive_url = f"{os.environ['GITEA_URL']}/api/v1/repos/{repository}/archive/{revision}.tar.gz"
+      with tempfile.TemporaryDirectory() as temporary:
+          temporary = Path(temporary)
+          archive_path = temporary / "source.tar.gz"
+          with urllib.request.urlopen(archive_url, timeout=120) as response:
+              with archive_path.open("wb") as output:
+                  shutil.copyfileobj(response, output)
+          extracted = temporary / "extracted"
+          with tarfile.open(archive_path) as archive:
+              archive.extractall(extracted, filter="data")
+          roots = list(extracted.iterdir())
+          if len(roots) != 1 or not roots[0].is_dir():
+              raise SystemExit("Unexpected repository archive layout")
+          shutil.move(str(roots[0]), "application")
+      source = {"repository": repository, "revision": revision, "ref": os.environ["GITEA_BRANCH_REF"]}
+      Path("source.json").write_text(json.dumps(source, indent=2) + "\n")
+      Path("source.env").write_text(f"SOURCE_SHA={revision}\n")
+      print(f"Fetched Gitea commit {revision}; pipeline YAML loaded from {os.environ['CI_CONFIG_PATH']}")
+      PY
+  artifacts:
+    expire_in: 1 day
+    paths: [application/, source.json]
+    reports:
+      dotenv: source.env

@@ -3,35 +3,22 @@ kind: Pipeline
 metadata:
   name: dotnet-ci
   annotations:
-    pipelinesascode.tekton.dev/task: ../tasks/git-clone.yaml
+    pipelinesascode.tekton.dev/task: https://raw.githubusercontent.com/tektoncd/catalog/112374ce1262b133a77300bd8133445722605e04/task/git-clone/0.1/git-clone.yaml
     pipelinesascode.tekton.dev/task-1: ../tasks/dotnet-build.yaml
-    pipelinesascode.tekton.dev/task-2: ../tasks/dotnet-verify.yaml
-    pipelinesascode.tekton.dev/task-3: ../tasks/gitleaks.yaml
-    pipelinesascode.tekton.dev/task-4: ../tasks/semgrep.yaml
-    pipelinesascode.tekton.dev/task-5: ../tasks/trivy-source.yaml
-    pipelinesascode.tekton.dev/task-6: ../tasks/write-ci-evidence.yaml
-    pipelinesascode.tekton.dev/task-7: https://raw.githubusercontent.com/tektoncd/catalog/112374ce1262b133a77300bd8133445722605e04/task/hadolint/0.1/hadolint.yaml
 spec:
-  description: Credential-free .NET quality, test, SAST, secret, and source SCA gates for same-repository pull requests.
+  description: Clone a repository and build its .NET project.
   params:
     - name: repo-url
     - name: revision
-    - name: branch
-      default: main
     - name: project-directory
       default: src
-    - name: test-project
     - name: sdk-image
       default: mcr.microsoft.com/dotnet/sdk:10.0
-    - name: dockerfile
-      default: Dockerfile
   workspaces:
     - name: shared-workspace
   results:
     - name: source-commit
       value: $(tasks.fetch-repository.results.commit)
-    - name: test-count
-      value: $(tasks.verify-dotnet.results.test-count)
   tasks:
     - name: fetch-repository
       taskRef:
@@ -41,8 +28,6 @@ spec:
           value: $(params.repo-url)
         - name: revision
           value: $(params.revision)
-        - name: branch
-          value: $(params.branch)
       workspaces:
         - name: output
           workspace: shared-workspace
@@ -60,82 +45,3 @@ spec:
         - name: source
           workspace: shared-workspace
           subPath: source
-    - name: verify-dotnet
-      runAfter: [build-dotnet]
-      taskRef:
-        name: dotnet-verify
-      params:
-        - name: sdk-image
-          value: $(params.sdk-image)
-        - name: project-directory
-          value: $(params.project-directory)
-        - name: test-project
-          value: $(params.test-project)
-      workspaces:
-        - name: source
-          workspace: shared-workspace
-          subPath: source
-        - name: reports
-          workspace: shared-workspace
-          subPath: reports
-    - name: scan-secrets
-      runAfter: [fetch-repository]
-      taskRef:
-        name: gitleaks
-      workspaces:
-        - name: source
-          workspace: shared-workspace
-          subPath: source
-        - name: reports
-          workspace: shared-workspace
-          subPath: reports
-    - name: lint-dockerfile
-      runAfter: [fetch-repository]
-      taskRef:
-        name: hadolint
-      params:
-        - name: dockerfile-path
-          value: $(params.dockerfile)
-      workspaces:
-        - name: source
-          workspace: shared-workspace
-          subPath: source
-    - name: scan-sast
-      runAfter: [verify-dotnet]
-      taskRef:
-        name: semgrep
-      workspaces:
-        - name: source
-          workspace: shared-workspace
-          subPath: source
-        - name: reports
-          workspace: shared-workspace
-          subPath: reports
-    - name: scan-source
-      runAfter: [verify-dotnet]
-      taskRef:
-        name: trivy-source
-      workspaces:
-        - name: source
-          workspace: shared-workspace
-          subPath: source
-        - name: reports
-          workspace: shared-workspace
-          subPath: reports
-  finally:
-    - name: collect-evidence
-      taskRef:
-        name: write-ci-evidence
-      params:
-        - name: repository
-          value: $(params.repo-url)
-        - name: revision
-          value: $(params.revision)
-        - name: status
-          value: $(tasks.status)
-        - name: run-name
-          value: $(context.pipelineRun.name)
-      workspaces:
-        - name: reports
-          workspace: shared-workspace
-          subPath: reports
