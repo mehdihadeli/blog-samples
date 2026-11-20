@@ -3,3 +3,5 @@ evidence/
 **/bin/
 **/obj/
 **/__pycache__/
+!deployments/gitea/
+!deployments/gitea/app.ini

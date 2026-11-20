@@ -1,5 +1,0 @@
-.dotnet:
-  image: $DOTNET_IMAGE
-  cache:
-    key: dotnet-10-nuget
-    paths: [.nuget/packages/]

@@ -1,11 +1,41 @@
-include:
-  - remote: 'http://gitea:3000/admin/gitlab-templates/raw/branch/main/templates/dotnet-base.yml'
+# CI/CD component: dotnet-build.
+#
+# Restores and builds one .NET project or solution. The job is self-contained:
+# it declares its own image, NuGet cache, and artifact paths, so a consumer can
+# include this file on its own and override any input.
+spec:
+  description: Build a .NET project or solution with the SDK image of your choice.
+  inputs:
+    stage:
+      default: build
+      description: The stage to run the .NET build
+    dotnet_version:
+      default: "10.0-alpine"
+      description: ".NET SDK image tag, for example 8.0, 10.0, or 10.0-alpine"
+    project_path:
+      default: "."
+      description: "Path to the .csproj or solution file"
+    configuration:
+      default: "Release"
+      description: "Build configuration (Debug/Release)"
+---
 
-.dotnet-build:
-  extends: .dotnet
+dotnet-build:
+  stage: $[[ inputs.stage ]]
+  image: mcr.microsoft.com/dotnet/sdk:$[[ inputs.dotnet_version ]]
+  variables:
+    NUGET_PACKAGES: "$CI_PROJECT_DIR/.nuget/packages"
+    DOTNET_NOLOGO: "true"
+    DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+  cache:
+    key: "$CI_COMMIT_REF_SLUG-dotnet"
+    paths:
+      - .nuget/packages/
+      - "**/obj/"
   script:
-    - dotnet restore "$DOTNET_TEST_PROJECT"
-    - dotnet build "$DOTNET_TEST_PROJECT" --configuration Release --no-restore
+    - dotnet restore $[[ inputs.project_path ]]
+    - dotnet build $[[ inputs.project_path ]] --configuration $[[ inputs.configuration ]] --no-restore
   artifacts:
-    expire_in: 1 day
-    paths: [application/, source.json]
+    paths:
+      - "**/bin/$[[ inputs.configuration ]]/"
+    expire_in: 1 week

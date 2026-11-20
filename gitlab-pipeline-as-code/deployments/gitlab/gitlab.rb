@@ -2,7 +2,8 @@ external_url "http://localhost:#{ENV.fetch('GITLAB_HTTP_PORT', '8929')}"
 nginx['listen_port'] = 8929
 nginx['listen_https'] = false
 letsencrypt['enable'] = false
-gitlab_rails['initial_root_password'] = ENV.fetch('GITLAB_ROOT_PASSWORD')
+# The initial root password is generated on first boot and stored in
+# /etc/gitlab/initial_root_password inside the container.
 gitlab_rails['gitlab_signup_enabled'] = false
 gitlab_rails['time_zone'] = 'UTC'
 gitlab_rails['usage_ping_enabled'] = false

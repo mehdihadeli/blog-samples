@@ -1,0 +1,180 @@
+# CI/CD component: git-clone.
+#
+# Modeled on the Tekton git-clone catalog task (0.9). It clones a repository URL
+# into a subdirectory of the job workspace and publishes the resolved commit,
+# URL, and committer date to later stages through a dotenv report.
+#
+# Provider-agnostic: the job runs plain git and never parses a webhook payload.
+# The consumer supplies the URL and revision as inputs, and every other input
+# keeps the default of the Tekton task where one applies.
+spec:
+  description: Clone a Git repository into the job workspace with Tekton-like inputs.
+  inputs:
+    job-name:
+      default: git-clone
+      description: Name of the job this component adds to the pipeline.
+    stage:
+      default: fetch
+      description: Pipeline stage for the clone job.
+    image:
+      default: alpine/git:2.43.0
+      description: Container image that provides git.
+    url:
+      default: ""
+      description: Repository URL to clone from.
+    revision:
+      default: ""
+      description: Revision to check out (branch, tag, SHA, or ref). Empty fetches the default branch head.
+    refspec:
+      default: ""
+      description: Refspec to fetch before checking out the revision.
+    submodules:
+      default: "true"
+      description: Initialize and fetch git submodules.
+    depth:
+      default: "1"
+      description: Shallow-clone depth; 0 disables the depth limit.
+    sslVerify:
+      default: "true"
+      description: Value for git http.sslVerify.
+    crtFileName:
+      default: ca-bundle.crt
+      description: Filename of the mounted CA bundle.
+    sslCaDirectory:
+      default: ""
+      description: Directory holding CA certificates for TLS verification.
+    subdirectory:
+      default: ""
+      description: Subdirectory inside the workspace to clone into.
+    sparseCheckoutDirectories:
+      default: ""
+      description: Space-separated directory patterns for a sparse checkout.
+    deleteExisting:
+      default: "true"
+      description: Clean the destination directory before cloning.
+    httpProxy:
+      default: ""
+      description: HTTP proxy; empty ignores it.
+    httpsProxy:
+      default: ""
+      description: HTTPS proxy; empty ignores it.
+    noProxy:
+      default: ""
+      description: NO_PROXY value; empty ignores it.
+    verbose:
+      default: "true"
+      description: Trace the executed commands.
+    userHome:
+      default: /root
+      description: Home directory used for global git configuration.
+---
+
+"$[[ inputs.job-name ]]":
+  stage: $[[ inputs.stage ]]
+  # The Tekton catalog image ships `ENTRYPOINT ["git"]`. Clearing the entrypoint
+  # lets GitLab Runner run its own `sh -c` script; otherwise the shell command is
+  # passed to git and fails with "git: 'sh' is not a git command".
+  image:
+    name: $[[ inputs.image ]]
+    entrypoint: [""]
+  script:
+    - |
+      set -eu
+
+      if [ -z "$[[ inputs.url ]]" ]; then
+        echo "git-clone: the url input is required" >&2
+        exit 1
+      fi
+
+      if [ "$[[ inputs.verbose ]]" = "true" ]; then set -x; fi
+
+      export HOME="$[[ inputs.userHome ]]"
+      mkdir -p "${HOME}"
+
+      CHECKOUT_DIR="${CI_PROJECT_DIR}/$[[ inputs.subdirectory ]]"
+
+      cleandir() {
+        if [ -d "${CHECKOUT_DIR}" ]; then
+          # Delete non-hidden files and directories.
+          rm -rf "${CHECKOUT_DIR:?}"/*
+          # Delete dotfiles, excluding the parent directory itself.
+          rm -rf "${CHECKOUT_DIR}"/.[!.]*
+          rm -rf "${CHECKOUT_DIR}"/..?*
+        fi
+      }
+
+      if [ "$[[ inputs.deleteExisting ]]" = "true" ]; then
+        cleandir || true
+      fi
+
+      test -z "$[[ inputs.httpProxy ]]"  || export HTTP_PROXY="$[[ inputs.httpProxy ]]"
+      test -z "$[[ inputs.httpsProxy ]]" || export HTTPS_PROXY="$[[ inputs.httpsProxy ]]"
+      test -z "$[[ inputs.noProxy ]]"    || export NO_PROXY="$[[ inputs.noProxy ]]"
+
+      if [ -n "$[[ inputs.sslCaDirectory ]]" ]; then
+        export GIT_SSL_CAPATH="$[[ inputs.sslCaDirectory ]]"
+        if [ -n "$[[ inputs.crtFileName ]]" ]; then
+          export GIT_SSL_CAINFO="$[[ inputs.sslCaDirectory ]]/$[[ inputs.crtFileName ]]"
+        fi
+      fi
+
+      git config --global http.sslVerify "$[[ inputs.sslVerify ]]"
+      git config --global --add safe.directory "${CI_PROJECT_DIR}"
+
+      DEPTH_ARG=""
+      if [ -n "$[[ inputs.depth ]]" ] && [ "$[[ inputs.depth ]]" != "0" ]; then
+        DEPTH_ARG="--depth=$[[ inputs.depth ]]"
+      fi
+
+      mkdir -p "${CHECKOUT_DIR}"
+      git -C "${CHECKOUT_DIR}" init -q
+      git -C "${CHECKOUT_DIR}" remote add origin "$[[ inputs.url ]]"
+
+      if [ -n "$[[ inputs.sparseCheckoutDirectories ]]" ]; then
+        git -C "${CHECKOUT_DIR}" sparse-checkout init --cone
+        # Intentional word splitting: the input is a space-separated list.
+        # shellcheck disable=SC2086
+        git -C "${CHECKOUT_DIR}" sparse-checkout set $[[ inputs.sparseCheckoutDirectories ]]
+      fi
+
+      if [ -n "$[[ inputs.refspec ]]" ]; then
+        git -C "${CHECKOUT_DIR}" fetch ${DEPTH_ARG} origin "$[[ inputs.refspec ]]"
+      elif [ -n "$[[ inputs.revision ]]" ]; then
+        git -C "${CHECKOUT_DIR}" fetch ${DEPTH_ARG} origin "$[[ inputs.revision ]]"
+      else
+        git -C "${CHECKOUT_DIR}" fetch ${DEPTH_ARG} origin
+      fi
+
+      if [ -n "$[[ inputs.revision ]]" ]; then
+        git -C "${CHECKOUT_DIR}" checkout --detach "$[[ inputs.revision ]]" \
+          || git -C "${CHECKOUT_DIR}" checkout --detach FETCH_HEAD
+      else
+        git -C "${CHECKOUT_DIR}" checkout --detach FETCH_HEAD
+      fi
+
+      if [ "$[[ inputs.submodules ]]" = "true" ]; then
+        git -C "${CHECKOUT_DIR}" submodule update --init --recursive ${DEPTH_ARG}
+      fi
+
+      RESULT_COMMIT="$(git -C "${CHECKOUT_DIR}" rev-parse HEAD)"
+      RESULT_COMMITTER_DATE="$(git -C "${CHECKOUT_DIR}" log -1 --pretty=%ct)"
+      RESULT_URL="$[[ inputs.url ]]"
+
+      # Downstream jobs only need the working tree; drop the history to keep
+      # the shared artifact small. The resolved revision is recorded above.
+      rm -rf "${CHECKOUT_DIR}"/.git
+
+      printf '%s' "${RESULT_COMMIT}"         > git-clone-commit.txt
+      printf '%s' "${RESULT_URL}"            > git-clone-url.txt
+      printf '%s' "${RESULT_COMMITTER_DATE}" > git-clone-committer-date.txt
+
+      {
+        printf 'GIT_CLONE_COMMIT=%s\n' "${RESULT_COMMIT}"
+        printf 'GIT_CLONE_COMMIT_URL=%s\n' "${RESULT_URL}"
+        printf 'GIT_CLONE_COMMITTER_DATE=%s\n' "${RESULT_COMMITTER_DATE}"
+      } > git-clone.env
+  artifacts:
+    expire_in: 1 day
+    paths: ["."]
+    reports:
+      dotenv: git-clone.env

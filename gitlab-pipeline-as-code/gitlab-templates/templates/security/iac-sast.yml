@@ -1,0 +1,57 @@
+# Component created based on GitLab's IAC SAST Scanning template
+# Read more about this feature here: https://docs.gitlab.com/ee/user/application_security/iac_scanning/
+
+spec:
+    inputs:
+        enable_mr_pipelines:
+            default: false
+            type: boolean
+        excluded_analyzers:
+            default: ""
+        excluded_paths:
+            default: "spec, test, tests, tmp"
+        image_prefix:
+            default: "$CI_TEMPLATE_REGISTRY_HOST/security-products"
+        image_suffix:
+            default: ""
+        image_tag:
+            default: "6"
+        search_max_depth:
+            default: 4
+            type: number
+        stage:
+            default: test
+
+---
+kics-iac-sast:
+  stage: $[[ inputs.stage ]]
+  image:
+    name: "$[[ inputs.image_prefix ]]/kics:$[[ inputs.image_tag ]]$[[ inputs.image_suffix ]]"
+  variables:
+    SEARCH_MAX_DEPTH: $[[ inputs.search_max_depth ]]
+  script:
+    - /analyzer run
+  artifacts:
+    access: 'developer'
+    reports:
+      sast: gl-sast-report.json
+    paths:
+      - "gl-sast-report.json"
+  allow_failure: true
+  rules:
+    - if: '"$[[ inputs.excluded_analyzers ]]" =~ /kics/'
+      when: never
+
+    # The following 3 blocks of rules define whether the job runs in a an *MR pipeline* or a *branch pipeline*
+    # when an MR exists. If the job has additional rules to observe they should be added in the blocks 1 and 3
+    # to cover both the *MR pipeline* and the *branch pipeline* workflows.
+
+    # 1. Run the job in an *MR* pipeline if MR pipelines for AST are enabled and there's an open merge request.
+    - if: '"$[[ inputs.enable_mr_pipelines ]]" == "true" &&
+          $CI_PIPELINE_SOURCE == "merge_request_event"'
+    # 2. Don't run the job in a *branch pipeline* if *MR pipelines* for AST are enabled and there's an open merge request.
+    - if: '"$[[ inputs.enable_mr_pipelines ]]" == "true" &&
+          $CI_OPEN_MERGE_REQUESTS'
+      when: never
+    # 3. Finally, run the job in a *branch pipeline* (When MR pipelines are disabled for AST, or it is enabled but no open MRs exist for the branch).
+    - if: $CI_COMMIT_BRANCH

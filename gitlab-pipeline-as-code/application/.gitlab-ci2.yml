@@ -1,0 +1,127 @@
+# Application pipeline entry point #2 (used by the dotnet-ci2 GitLab project).
+#
+# Where .gitlab-ci.yml delegates to the shared pipelines/dotnet-ci.yml component,
+# this file composes the pipeline directly from two different sources:
+#
+#   1. Gitea-hosted reusable job templates (include: remote) from the
+#      gitlab-templates catalog repository: git-clone, dotnet-build,
+#      dotnet-test, and dotnet-publish.
+#   2. GitLab CI/CD catalog security components (include: template) that ship
+#      with the instance: SAST, secret detection, dependency scanning,
+#      infrastructure-as-code scanning, and code quality.
+#
+# The job names below are the ones those templates actually define, so the
+# security jobs can be overridden to read the source the git-clone job
+# downloaded into application/ instead of the empty orchestration repository.
+
+workflow:
+  name: Gitea application CI (dotnet-ci2)
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "trigger"'
+    - when: never
+
+stages: [fetch, build, test, scan, publish]
+
+default:
+  tags: [docker]
+  timeout: 15m
+
+variables:
+  # The clone job fetches the source, so the runner must not run its own git
+  # fetch against the orchestration repository.
+  GIT_STRATEGY: empty
+
+include:
+  # --- Gitea-hosted reusable tasks -------------------------------------------------
+  - remote: 'http://gitea:3000/admin/gitlab-templates/raw/branch/main/templates/git-clone.yml'
+    inputs:
+      stage: fetch
+      url: $GIT_CLONE_URL
+      revision: $GIT_CLONE_REVISION
+      subdirectory: application
+  - remote: 'http://gitea:3000/admin/gitlab-templates/raw/branch/main/templates/dotnet-build.yml'
+    inputs:
+      stage: build
+      dotnet_version: "10.0-alpine"
+      project_path: application/tests/Sample.Api.Tests.csproj
+      configuration: Release
+  - remote: 'http://gitea:3000/admin/gitlab-templates/raw/branch/main/templates/dotnet-test.yml'
+    inputs:
+      stage: test
+      dotnet_version: "10.0-alpine"
+      project_path: application/tests/Sample.Api.Tests.csproj
+      configuration: Release
+      results_path: TestResults
+  - remote: 'http://gitea:3000/admin/gitlab-templates/raw/branch/main/templates/dotnet-publish.yml'
+    inputs:
+      stage: publish
+      dotnet_version: "10.0-alpine"
+      project_path: application/src/Sample.Api.csproj
+      configuration: Release
+      output_path: publish
+
+  # --- GitLab security scanners as mirrored CI/CD components -------------------------
+  # The official gitlab.com catalog components are mirrored into this Gitea catalog
+  # under templates/security/ and consumed with include: remote + inputs. The
+  # component authoring format (spec:inputs, $[[ inputs.* ]]) is preserved without
+  # exposing templates to the public internet.
+  - remote: 'http://gitea:3000/admin/gitlab-templates/raw/branch/main/templates/security/sast.yml'
+    inputs:
+      stage: scan
+  - remote: 'http://gitea:3000/admin/gitlab-templates/raw/branch/main/templates/security/iac-sast.yml'
+    inputs:
+      stage: scan
+  - remote: 'http://gitea:3000/admin/gitlab-templates/raw/branch/main/templates/security/secret-detection.yml'
+    inputs:
+      stage: scan
+  - remote: 'http://gitea:3000/admin/gitlab-templates/raw/branch/main/templates/security/dependency-scanning.yml'
+    inputs:
+      stage: scan
+      disabled_resolution_jobs: "maven,gradle,python"
+  - remote: 'http://gitea:3000/admin/gitlab-templates/raw/branch/main/templates/security/code-quality.yml'
+    inputs:
+      stage: scan
+
+# --- Security scanner overrides ----------------------------------------------------
+# The orchestration repository is empty and GIT_STRATEGY is empty globally, so
+# each scanner drops its own git fetch and takes the clone job's artifacts
+# instead. Their exists/branch-gated rules are replaced because the source is
+# not present at rules-evaluation time. The components' opt-out differs from the
+# legacy Jobs/* templates: SAST and IaC use the excluded_analyzers input,
+# dependency-scanning reads DEPENDENCY_SCANNING_DISABLED, and code-quality keeps
+# CODE_QUALITY_DISABLED. Stage is not overridden here: it already arrives through
+# each component's `stage` input in the include above.
+semgrep-sast:
+  dependencies: [git-clone]
+  rules:
+    - when: on_success
+  variables:
+    GIT_STRATEGY: none
+
+secret_detection:
+  dependencies: [git-clone]
+  rules:
+    - when: on_success
+  variables:
+    GIT_STRATEGY: none
+
+dependency-scanning:
+  dependencies: [git-clone]
+  rules:
+    - when: on_success
+  variables:
+    GIT_STRATEGY: none
+
+kics-iac-sast:
+  dependencies: [git-clone]
+  rules:
+    - when: on_success
+  variables:
+    GIT_STRATEGY: none
+
+code_quality:
+  dependencies: [git-clone]
+  rules:
+    - when: on_success
+  variables:
+    GIT_STRATEGY: none

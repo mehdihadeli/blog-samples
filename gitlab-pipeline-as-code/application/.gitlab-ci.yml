@@ -1,6 +1,10 @@
+# The application owns its pipeline entry point and the values it passes to the
+# shared pipeline component. Everything else falls back to the component's
+# spec:inputs defaults.
 include:
   - remote: 'http://gitea:3000/admin/gitlab-templates/raw/branch/main/pipelines/dotnet-ci.yml'
-
-variables:
-  DOTNET_TEST_PROJECT: application/tests/Sample.Api.Tests.csproj
-  DOTNET_APP_PROJECT: application/src/Sample.Api.csproj
+    inputs:
+      # GitLab project variables. GitLab inserts the value into the included
+      # configuration, and the clone job expands it when it runs.
+      source_url: $GIT_CLONE_URL
+      source_revision: $GIT_CLONE_REVISION

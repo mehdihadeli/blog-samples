@@ -1,8 +1,50 @@
-include:
-  - remote: 'http://gitea:3000/admin/gitlab-templates/raw/branch/main/templates/gitea-source.yml'
-  - remote: 'http://gitea:3000/admin/gitlab-templates/raw/branch/main/templates/dotnet-build.yml'
-  - remote: 'http://gitea:3000/admin/gitlab-templates/raw/branch/main/templates/dotnet-test.yml'
-  - remote: 'http://gitea:3000/admin/gitlab-templates/raw/branch/main/templates/dotnet-publish.yml'
+# CI/CD pipeline component: dotnet-ci.
+#
+# Composes the four job components in this catalog into one pipeline graph. The
+# application repository only has to include this file and pass its inputs:
+#
+#   include:
+#     - remote: '.../pipelines/dotnet-ci.yml'
+#       inputs:
+#         source_url: $GIT_CLONE_URL
+#         source_revision: $GIT_CLONE_REVISION
+#
+# Stage ordering replaces `needs`: each stage downloads the artifacts of the
+# stages before it, so the clone job's dotenv report reaches every later job.
+spec:
+  description: Clone, build, test, security-scan, and publish a .NET application from any Git host.
+  inputs:
+    dotnet_version:
+      default: "10.0-alpine"
+      description: ".NET SDK image tag used by every .NET job"
+    configuration:
+      default: "Release"
+      description: "Build configuration (Debug/Release)"
+    source_url:
+      default: ""
+      description: "Git URL of the application repository"
+    source_revision:
+      default: ""
+      description: "Revision to build; empty uses the default branch head"
+    source_subdirectory:
+      default: "application"
+      description: "Directory inside the workspace for the cloned source"
+    test_project:
+      default: "application/tests/Sample.Api.Tests.csproj"
+      description: "Test project path, relative to the workspace"
+    app_project:
+      default: "application/src/Sample.Api.csproj"
+      description: "Application project path, relative to the workspace"
+    results_path:
+      default: "TestResults"
+      description: "Directory for TRX test results"
+    publish_path:
+      default: "publish"
+      description: "Directory for the published output"
+    security_scan_stage:
+      default: "scan"
+      description: "Stage for the GitLab security scanner jobs"
+---
 
 workflow:
   name: Gitea application CI
@@ -10,37 +52,105 @@ workflow:
     - if: '$CI_PIPELINE_SOURCE == "trigger"'
     - when: never
 
-stages: [fetch, build, test, publish]
+stages: [fetch, build, test, scan, publish]
 
 default:
   tags: [docker]
   timeout: 15m
 
 variables:
+  # The clone component fetches the source, so the runner must not run its own
+  # git fetch against the orchestration repository.
   GIT_STRATEGY: empty
-  DOTNET_NOLOGO: "true"
-  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
-  NUGET_PACKAGES: "$CI_PROJECT_DIR/.nuget/packages"
 
-fetch-source:
-  extends: .gitea-source
-  stage: fetch
+include:
+  - remote: 'http://gitea:3000/admin/gitlab-templates/raw/branch/main/templates/git-clone.yml'
+    inputs:
+      stage: fetch
+      url: $[[ inputs.source_url ]]
+      revision: $[[ inputs.source_revision ]]
+      subdirectory: $[[ inputs.source_subdirectory ]]
+  - remote: 'http://gitea:3000/admin/gitlab-templates/raw/branch/main/templates/dotnet-build.yml'
+    inputs:
+      stage: build
+      dotnet_version: $[[ inputs.dotnet_version ]]
+      project_path: $[[ inputs.test_project ]]
+      configuration: $[[ inputs.configuration ]]
+  - remote: 'http://gitea:3000/admin/gitlab-templates/raw/branch/main/templates/dotnet-test.yml'
+    inputs:
+      stage: test
+      dotnet_version: $[[ inputs.dotnet_version ]]
+      project_path: $[[ inputs.test_project ]]
+      configuration: $[[ inputs.configuration ]]
+      results_path: $[[ inputs.results_path ]]
+  - remote: 'http://gitea:3000/admin/gitlab-templates/raw/branch/main/templates/dotnet-publish.yml'
+    inputs:
+      stage: publish
+      dotnet_version: $[[ inputs.dotnet_version ]]
+      project_path: $[[ inputs.app_project ]]
+      configuration: $[[ inputs.configuration ]]
+      output_path: $[[ inputs.publish_path ]]
+  # GitLab security scanners, mirrored from gitlab.com into this catalog under
+  # templates/security/ and consumed with include: remote + inputs. The component
+  # authoring format (spec:inputs, $[[ inputs.* ]]) is preserved without exposing
+  # templates to the public internet.
+  - remote: 'http://gitea:3000/admin/gitlab-templates/raw/branch/main/templates/security/sast.yml'
+    inputs:
+      stage: $[[ inputs.security_scan_stage ]]
+  - remote: 'http://gitea:3000/admin/gitlab-templates/raw/branch/main/templates/security/iac-sast.yml'
+    inputs:
+      stage: $[[ inputs.security_scan_stage ]]
+  - remote: 'http://gitea:3000/admin/gitlab-templates/raw/branch/main/templates/security/secret-detection.yml'
+    inputs:
+      stage: $[[ inputs.security_scan_stage ]]
+  - remote: 'http://gitea:3000/admin/gitlab-templates/raw/branch/main/templates/security/dependency-scanning.yml'
+    inputs:
+      stage: $[[ inputs.security_scan_stage ]]
+      disabled_resolution_jobs: "maven,gradle,python"
+  - remote: 'http://gitea:3000/admin/gitlab-templates/raw/branch/main/templates/security/code-quality.yml'
+    inputs:
+      stage: $[[ inputs.security_scan_stage ]]
 
-build:
-  extends: .dotnet-build
-  stage: build
-  needs: [fetch-source]
+# The security scanners are overridden to read the source the git-clone job
+# downloaded into `application/`. The orchestration repository is empty, so each
+# scanner drops its own git fetch and takes the clone job's artifacts instead.
+# Their exists/branch-gated rules are replaced because that source is not present
+# at rules-evaluation time. The components' opt-out differs from the legacy
+# Jobs/* templates: SAST and IaC use the excluded_analyzers input,
+# dependency-scanning reads DEPENDENCY_SCANNING_DISABLED, and code-quality keeps
+# CODE_QUALITY_DISABLED. Stage is not overridden here: it already arrives through
+# each component's `stage` input in the include above.
+semgrep-sast:
+  dependencies: [git-clone]
+  rules:
+    - when: on_success
+  variables:
+    GIT_STRATEGY: none
 
-test:
-  extends: .dotnet-test
-  stage: test
-  needs: [build]
+secret_detection:
+  dependencies: [git-clone]
+  rules:
+    - when: on_success
+  variables:
+    GIT_STRATEGY: none
 
-publish:
-  extends: .dotnet-publish
-  stage: publish
-  needs:
-    - job: build
-      artifacts: true
-    - job: test
-      artifacts: false
+dependency-scanning:
+  dependencies: [git-clone]
+  rules:
+    - when: on_success
+  variables:
+    GIT_STRATEGY: none
+
+kics-iac-sast:
+  dependencies: [git-clone]
+  rules:
+    - when: on_success
+  variables:
+    GIT_STRATEGY: none
+
+code_quality:
+  dependencies: [git-clone]
+  rules:
+    - when: on_success
+  variables:
+    GIT_STRATEGY: none

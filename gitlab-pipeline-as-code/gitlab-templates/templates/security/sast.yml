@@ -1,0 +1,427 @@
+spec:
+  inputs:
+    enable_mr_pipelines:
+      default: false
+      type: boolean
+    excluded_analyzers:
+      default: ""
+    excluded_paths:
+      default: "spec, test, tests, tmp"
+    image_prefix:
+      default: "$CI_TEMPLATE_REGISTRY_HOST/security-products"
+    image_suffix:
+      default: ""
+    image_tag:
+      default: "6"
+    include_experimental:
+      default: false
+      type: boolean
+    run_advanced_sast:
+      default: false
+      type: boolean
+    run_advanced_sast_cpp:
+      default: false
+      type: boolean
+    run_kubesec_sast:
+      default: false
+      type: boolean
+    search_max_depth:
+      default: 4
+      type: number
+    stage:
+      default: test
+    advanced_sast_partial_scan:
+      description: "Configures the scan mode for Advanced SAST in merge requests. Set to 'differential' to scan only modified files and their dependencies, improving performance."
+      default: ""
+
+---
+.sast-analyzer:
+  stage: $[[ inputs.stage ]]
+  allow_failure: true
+  # these variables are used by the analyzer
+  # TODO: propagate inputs when breaking down into separate components
+  # E.g. SEARCH_MAX_DEPTH is overridden in some analyzers. We should pass the input instead.
+  variables:
+    SEARCH_MAX_DEPTH: $[[ inputs.search_max_depth ]]
+    DEFAULT_SAST_EXCLUDED_PATHS: $[[ inputs.excluded_paths ]]
+    SAST_EXCLUDED_PATHS: "$DEFAULT_SAST_EXCLUDED_PATHS"
+    # Mirror the bundled Jobs/SAST.gitlab-ci.yml global so the analyzer sees the
+    # opt-out: gitlab-advanced-sast-ext reads SAST_EXCLUDED_ANALYZERS to decide
+    # whether to skip its beta de-dup. Without it, excluding semgrep-sast via the
+    # `excluded_analyzers` input would drop semgrep-overlapping findings that no
+    # job then reports. A project-level CI/CD variable still takes precedence.
+    SAST_EXCLUDED_ANALYZERS: "$[[ inputs.excluded_analyzers ]]"
+  script:
+    - /analyzer run
+  artifacts:
+    access: 'developer'
+    reports:
+      sast: gl-sast-report.json
+    paths:
+      - "gl-sast-report.json"
+
+.deprecated-16.8:
+  extends: .sast-analyzer
+  script:
+    - echo "This job was deprecated in GitLab 16.8 and removed in GitLab 17.0"
+    - echo "For more information see https://gitlab.com/gitlab-org/gitlab/-/issues/425085"
+    - exit 1
+  rules:
+    - when: never
+
+# list of extensions that are supported by gitlab-advanced-sast. Some of these are also supported by semgrep-sast
+# NOTE: When adding a new extension here, make sure to remove any matching extensions from `.semgrep-with-advanced-sast-exist-rules`
+.gitlab-advanced-sast-exist-rules:
+  exists:
+    - '**/{*.py,*.go,*.java,*.jsp,*.js,*.jsx,*.ts,*.tsx,*.cjs,*.mjs,*.cs,*.rb,*.php}'
+
+# list of extensions that are only supported by semgrep, and not gitlab-advanced-sast
+# NOTE: this list MUST NOT contain any extensions that are present in `.gitlab-advanced-sast-exist-rules`
+.semgrep-with-advanced-sast-exist-rules:
+  exists:
+    - '**/{*.c,*.cc,*.cpp,*.c++,*.cp,*.cxx,*.h,*.hpp,*.scala,*.sc,*.swift,*.m,*.kt,*.properties,application*.yml,bootstrap*.yml,application*.yaml,bootstrap*.yaml}'
+
+# list of extensions that are supported by semgrep-sast. Some of these are also supported by gitlab-advanced-sast
+.semgrep-exist-rules:
+  exists:
+    - '**/{*.py,*.js,*.jsx,*.ts,*.tsx,*.cjs,*.mjs,*.c,*.cc,*.cpp,*.c++,*.cp,*.cxx,*.h,*.hpp,*.go,*.java,*.cs,*.scala,*.sc,*.php,*.swift,*.m,*.rb,*.kt,*.properties,application*.yml,bootstrap*.yml,application*.yaml,bootstrap*.yaml}'
+
+gitlab-advanced-sast:
+  extends: .sast-analyzer
+  image:
+    name: "$[[ inputs.image_prefix ]]/gitlab-advanced-sast:${SAST_ANALYZER_IMAGE_TAG}$[[ inputs.image_suffix ]]"
+  variables:
+    SAST_ANALYZER_IMAGE_TAG: 2
+    SEARCH_MAX_DEPTH: 20
+    ADVANCED_SAST_PARTIAL_SCAN: "$[[ inputs.advanced_sast_partial_scan ]]"
+  cache:
+    key: "scan-metrics-$CI_COMMIT_REF_SLUG"
+    fallback_keys:
+      - "scan-metrics-$CI_DEFAULT_BRANCH"
+    paths:
+      - "scan_metrics.csv"
+  rules:
+    - if: '"$[[ inputs.excluded_analyzers ]]" =~ /(^|[,[:space:]])gitlab-advanced-sast([,[:space:]]|$)/'
+      when: never
+    - if: '"$[[ inputs.run_advanced_sast ]]" != "true"'
+      when: never
+
+    # The following 3 blocks of rules define whether the job runs in a an *MR pipeline* or a *branch pipeline*
+    # when an MR exists. If the job has additional rules to observe they should be added in the blocks 1 and 3
+    # to cover both the *MR pipeline* and the *branch pipeline* workflows.
+
+    # 1. Run the job in an *MR* pipeline if MR pipelines are enabled and there's an open merge request.
+    - if: '"$[[ inputs.enable_mr_pipelines ]]" == "true" &&
+          $CI_PIPELINE_SOURCE == "merge_request_event" &&
+          $GITLAB_FEATURES =~ /\bsast_advanced\b/'
+      exists: !reference [.gitlab-advanced-sast-exist-rules, exists]
+    # 2. Don't run the job in a *branch pipeline* if *MR pipelines* are enabled and there's an open merge request.
+    - if: '"$[[ inputs.enable_mr_pipelines ]]" == "true" &&
+          $CI_OPEN_MERGE_REQUESTS'
+      when: never
+    # 3. Finally, run the job in a *branch pipeline* (When MR pipelines are disabled, or it is enabled but no open MRs exist for the branch).
+    - if: $CI_COMMIT_BRANCH &&
+          $GITLAB_FEATURES =~ /\bsast_advanced\b/
+      exists: !reference [.gitlab-advanced-sast-exist-rules, exists]
+
+# list of extensions handled by gitlab-advanced-sast-ext (beta languages).
+# For the languages that semgrep-sast also covers (Scala, Swift, Objective-C, Kotlin),
+# both jobs run and gitlab-advanced-sast-ext defers to semgrep-sast for the weaknesses
+# Semgrep already reports, so these extensions are intentionally NOT removed from
+# `.semgrep-with-advanced-sast-exist-rules`.
+.gitlab-advanced-sast-ext-exist-rules:
+  # Use separate extension globs instead of a single brace pattern
+  # (`**/{*.swift,*.m,*.mm}`). GitLab classifies the brace form as a `pattern`
+  # glob, which short-circuits to a match once the file-count limit is exceeded
+  # (50,000 files), so the job would run even in large repositories with no
+  # Swift/Objective-C/Rust files. Extension globs are evaluated directly, without
+  # that limit.
+  exists:
+    - '**/*.swift'
+    - '**/*.m'
+    - '**/*.mm'
+    - '**/*.dart'
+    - '**/*.scala'
+    - '**/*.sc'
+    - '**/*.kt'
+    - '**/*.kts'
+    - '**/*.rs'
+
+gitlab-advanced-sast-ext:
+  extends: .sast-analyzer
+  image:
+    name: "$[[ inputs.image_prefix ]]/gitlab-advanced-sast-ext:${SAST_ANALYZER_IMAGE_TAG}$[[ inputs.image_suffix ]]"
+  variables:
+    SAST_ANALYZER_IMAGE_TAG: 0
+    # iOS project layouts nest deeply; match gitlab-advanced-sast so Swift /
+    # Objective-C sources more than 4 directories deep are not skipped.
+    SEARCH_MAX_DEPTH: 20
+    # Store path for incremental analysis; the cache: below persists it across pipelines.
+    GITLAB_ADVANCED_SAST_EXT_STORE: "$CI_PROJECT_DIR/.sat-store"
+  cache:
+    key: "sat-store-$CI_COMMIT_REF_SLUG"
+    fallback_keys:
+      - "sat-store-$CI_DEFAULT_BRANCH"
+    paths:
+      - .sat-store/
+  rules:
+    - if: '"$[[ inputs.excluded_analyzers ]]" =~ /(^|[,[:space:]])gitlab-advanced-sast-ext([,[:space:]]|$)/'
+      when: never
+    - if: '"$[[ inputs.run_advanced_sast ]]" != "true"'
+      when: never
+
+    # The following 3 blocks of rules define whether the job runs in a an *MR pipeline* or a *branch pipeline*
+    # when an MR exists. If the job has additional rules to observe they should be added in the blocks 1 and 3
+    # to cover both the *MR pipeline* and the *branch pipeline* workflows.
+
+    # 1. Run the job in an *MR* pipeline if MR pipelines are enabled and there's an open merge request.
+    - if: '"$[[ inputs.enable_mr_pipelines ]]" == "true" &&
+          $CI_PIPELINE_SOURCE == "merge_request_event" &&
+          $GITLAB_FEATURES =~ /\bsast_advanced\b/'
+      exists: !reference [.gitlab-advanced-sast-ext-exist-rules, exists]
+    # 2. Don't run the job in a *branch pipeline* if *MR pipelines* are enabled and there's an open merge request.
+    - if: '"$[[ inputs.enable_mr_pipelines ]]" == "true" &&
+          $CI_OPEN_MERGE_REQUESTS'
+      when: never
+    # 3. Finally, run the job in a *branch pipeline* (When MR pipelines are disabled, or it is enabled but no open MRs exist for the branch).
+    - if: $CI_COMMIT_BRANCH &&
+          $GITLAB_FEATURES =~ /\bsast_advanced\b/
+      exists: !reference [.gitlab-advanced-sast-ext-exist-rules, exists]
+
+
+brakeman-sast:
+  extends: .deprecated-16.8
+
+flawfinder-sast:
+  extends: .deprecated-16.8
+
+kubesec-sast:
+  extends: .sast-analyzer
+  image:
+    name: "$[[ inputs.image_prefix ]]/kubesec:$[[ inputs.image_tag ]]"
+  rules:
+    - if: '"$[[ inputs.excluded_analyzers ]]" =~ /kubesec/'
+      when: never
+
+    # The following 3 blocks of rules define whether the job runs in a an *MR pipeline* or a *branch pipeline*
+    # when an MR exists. If the job has additional rules to observe they should be added in the blocks 1 and 3
+    # to cover both the *MR pipeline* and the *branch pipeline* workflows.
+
+    # 1. Run the job in an *MR* pipeline if MR pipelines for AST are enabled and there's an open merge request.
+    - if: '"$[[ inputs.enable_mr_pipelines ]]" == "true" &&
+          $CI_PIPELINE_SOURCE == "merge_request_event" &&
+          "$[[ inputs.run_kubesec_sast ]]" == "true"'
+    # 2. Don't run the job in a *branch pipeline* if *MR pipelines* for AST are enabled and there's an open merge request.
+    - if: '"$[[ inputs.enable_mr_pipelines ]]" == "true" &&
+          $CI_OPEN_MERGE_REQUESTS'
+      when: never
+    # 3. Finally, run the job in a *branch pipeline* (When MR pipelines are disabled for AST, or it is enabled but no open MRs exist for the branch).
+    - if: '$CI_COMMIT_BRANCH &&
+          "$[[ inputs.run_kubesec_sast ]]" == "true"'
+
+
+mobsf-android-sast:
+  extends: .deprecated-16.8
+
+mobsf-ios-sast:
+  extends: .deprecated-16.8
+
+nodejs-scan-sast:
+  extends: .deprecated-16.8
+
+phpcs-security-audit-sast:
+  extends: .deprecated-16.8
+
+.pmd-apex-exist-rules:
+  exists:
+    - '**/*.cls'
+
+pmd-apex-sast:
+  extends: .sast-analyzer
+  image:
+    name: "$[[ inputs.image_prefix ]]/pmd-apex:$[[ inputs.image_tag ]]"
+  rules:
+    - if: '"$[[ inputs.excluded_analyzers ]]" =~ /pmd-apex/'
+      when: never
+
+    # The following 3 blocks of rules define whether the job runs in a an *MR pipeline* or a *branch pipeline*
+    # when an MR exists. If the job has additional rules to observe they should be added in the blocks 1 and 3
+    # to cover both the *MR pipeline* and the *branch pipeline* workflows.
+
+    # 1. Run the job in an *MR* pipeline if MR pipelines for AST are enabled and there's an open merge request.
+    - if: '"$[[ inputs.enable_mr_pipelines ]]" == "true" &&
+          $CI_PIPELINE_SOURCE == "merge_request_event"'
+      exists: !reference [.pmd-apex-exist-rules, exists]
+    # 2. Don't run the job in a *branch pipeline* if *MR pipelines* for AST are enabled and there's an open merge request.
+    - if: '"$[[ inputs.enable_mr_pipelines ]]" == "true" &&
+          $CI_OPEN_MERGE_REQUESTS'
+      when: never
+    # 3. Finally, run the job in a *branch pipeline* (When MR pipelines are disabled for AST, or it is enabled but no open MRs exist for the branch).
+    - if: $CI_COMMIT_BRANCH
+      exists: !reference [.pmd-apex-exist-rules, exists]
+
+
+security-code-scan-sast:
+  extends: .sast-analyzer
+  script:
+    - echo "This job was deprecated in GitLab 15.9 and removed in GitLab 16.0"
+    - echo "For more information see https://gitlab.com/gitlab-org/gitlab/-/issues/390416"
+    - exit 1
+  rules:
+    - when: never
+
+semgrep-sast:
+  extends: .sast-analyzer
+  image:
+    name: "$[[ inputs.image_prefix ]]/semgrep:$[[ inputs.image_tag ]]$[[ inputs.image_suffix ]]"
+  variables:
+    SEARCH_MAX_DEPTH: 20
+  rules:
+    - if: '"$[[ inputs.excluded_analyzers ]]" =~ /semgrep/'
+      when: never
+
+    # The following 3 blocks of rules define whether the job runs in a an *MR pipeline* or a *branch pipeline*
+    # when an MR exists. If the job has additional rules to observe they should be added in the blocks 1 and 3
+    # to cover both the *MR pipeline* and the *branch pipeline* workflows.
+
+    # 1. Run the job in an *MR* pipeline if MR pipelines for AST are enabled enable_mr_pipelines and there's an open merge request.
+    # In case gitlab-advanced-sast also runs, exclude files already scanned by gitlab-advanced-sast
+    - if: '"$[[ inputs.enable_mr_pipelines ]]" == "true" &&
+          $CI_PIPELINE_SOURCE == "merge_request_event" &&
+          $GITLAB_FEATURES =~ /\bsast_advanced\b/ &&
+          "$[[ inputs.excluded_analyzers ]]" !~ /(^|[,[:space:]])gitlab-advanced-sast([,[:space:]]|$)/ &&
+          "$[[ inputs.run_advanced_sast ]]" == "true"'
+      variables:
+        SAST_EXCLUDED_PATHS: "$DEFAULT_SAST_EXCLUDED_PATHS, **/*.py, **/*.go, **/*.java, **/*.js, **/*.jsx, **/*.ts, **/*.tsx, **/*.cjs, **/*.mjs, **/*.cs, **/*.rb, **/*.php"
+      exists: !reference [.semgrep-with-advanced-sast-exist-rules, exists]
+    ## In case gitlab-advanced-sast already covers all the files that semgrep-sast would have scanned (i.e the previous rule did not match) skip this job
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" &&
+          $GITLAB_FEATURES =~ /\bsast_advanced\b/ &&
+          "$[[ inputs.excluded_analyzers ]]" !~ /(^|[,[:space:]])gitlab-advanced-sast([,[:space:]]|$)/ &&
+          "$[[ inputs.run_advanced_sast ]]" == "true"'
+      when: never
+    ## In case gitlab-advanced-sast doesn't run, scan all files supported by semgrep
+    - if: '"$[[ inputs.enable_mr_pipelines ]]" == "true" &&
+          $CI_PIPELINE_SOURCE == "merge_request_event"'
+      exists: !reference [.semgrep-exist-rules, exists]
+
+    # 2. Don't run the job in a *branch pipeline* if *MR pipelines* for AST are enabled and there's an open merge request.
+    - if: '"$[[ inputs.enable_mr_pipelines ]]" == "true" &&
+          $CI_OPEN_MERGE_REQUESTS'
+      when: never
+
+    # 3. Finally, run the job in a *branch pipeline* (When MR pipelines are disabled for AST, or it is enabled but no open MRs exist for the branch).
+    ## In case gitlab-advanced-sast also runs, exclude files already scanned by gitlab-advanced-sast
+    - if: '$CI_COMMIT_BRANCH &&
+          $GITLAB_FEATURES =~ /\bsast_advanced\b/ &&
+          "$[[ inputs.excluded_analyzers ]]" !~ /(^|[,[:space:]])gitlab-advanced-sast([,[:space:]]|$)/ &&
+          "$[[ inputs.run_advanced_sast ]]" == "true"'
+      variables:
+        SAST_EXCLUDED_PATHS: "$DEFAULT_SAST_EXCLUDED_PATHS, **/*.py, **/*.go, **/*.java, **/*.js, **/*.jsx, **/*.ts, **/*.tsx, **/*.cjs, **/*.mjs, **/*.cs, **/*.rb, **/*.php"
+      exists: !reference [.semgrep-with-advanced-sast-exist-rules, exists]
+    ## In case gitlab-advanced-sast already covers all the files that semgrep-sast would have scanned
+    - if: '$CI_COMMIT_BRANCH &&
+          $GITLAB_FEATURES =~ /\bsast_advanced\b/ &&
+          "$[[ inputs.excluded_analyzers ]]" !~ /(^|[,[:space:]])gitlab-advanced-sast([,[:space:]]|$)/ &&
+          "$[[ inputs.run_advanced_sast ]]" == "true"'
+      when: never
+    ## In case gitlab-advanced-sast doesn't run, scan all files supported by semgrep
+    - if: $CI_COMMIT_BRANCH
+      exists: !reference [.semgrep-exist-rules, exists]
+
+.sobelow-exist-rules:
+  exists:
+    - '**/mix.exs'
+
+sobelow-sast:
+  extends: .sast-analyzer
+  image:
+    name: "$[[ inputs.image_prefix ]]/sobelow:$[[ inputs.image_tag ]]"
+  rules:
+    - if: '"$[[ inputs.excluded_analyzers ]]" =~ /sobelow/'
+      when: never
+
+    # The following 3 blocks of rules define whether the job runs in a an *MR pipeline* or a *branch pipeline*
+    # when an MR exists. If the job has additional rules to observe they should be added in the blocks 1 and 3
+    # to cover both the *MR pipeline* and the *branch pipeline* workflows.
+
+    # 1. Run the job in an *MR* pipeline if MR pipelines for AST are enabled and there's an open merge request.
+    - if: '"$[[ inputs.enable_mr_pipelines ]]" == "true" &&
+          $CI_PIPELINE_SOURCE == "merge_request_event"'
+      exists: !reference [.sobelow-exist-rules, exists]
+    # 2. Don't run the job in a *branch pipeline* if *MR pipelines* for AST are enabled and there's an open merge request.
+    - if: '"$[[ inputs.enable_mr_pipelines ]]" == "true" &&
+          $CI_OPEN_MERGE_REQUESTS'
+      when: never
+    # 3. Finally, run the job in a *branch pipeline* (When MR pipelines are disabled for AST, or it is enabled but no open MRs exist for the branch).
+    - if: $CI_COMMIT_BRANCH
+      exists: !reference [.sobelow-exist-rules, exists]
+
+
+.spotbugs-exist-rules:
+  exists:
+    - '**/*.groovy'
+
+spotbugs-sast:
+  extends: .sast-analyzer
+  image:
+    name: "$[[ inputs.image_prefix ]]/spotbugs:$[[ inputs.image_tag ]]"
+  rules:
+    - if: '"$[[ inputs.excluded_analyzers ]]" =~ /spotbugs/'
+      when: never
+    - if: '"$[[ inputs.include_experimental ]]" == "true"'
+      exists:
+        - '**/AndroidManifest.xml'
+      when: never
+
+    # The following 3 blocks of rules define whether the job runs in a an *MR pipeline* or a *branch pipeline*
+    # when an MR exists. If the job has additional rules to observe they should be added in the blocks 1 and 3
+    # to cover both the *MR pipeline* and the *branch pipeline* workflows.
+
+    # 1. Run the job in an *MR* pipeline if MR pipelines for AST are enabled and there's an open merge request.
+    - if: '"$[[ inputs.enable_mr_pipelines ]]" == "true" &&
+          $CI_PIPELINE_SOURCE == "merge_request_event"'
+      exists: !reference [.spotbugs-exist-rules, exists]
+    # 2. Don't run the job in a *branch pipeline* if *MR pipelines* for AST are enabled and there's an open merge request.
+    - if: '"$[[ inputs.enable_mr_pipelines ]]" == "true" &&
+          $CI_OPEN_MERGE_REQUESTS'
+      when: never
+    # 3. Finally, run the job in a *branch pipeline* (When MR pipelines are disabled for AST, or it is enabled but no open MRs exist for the branch).
+    - if: $CI_COMMIT_BRANCH
+      exists: !reference [.spotbugs-exist-rules, exists]
+
+.gitlab-advanced-sast-cpp-exist-rules:
+  exists:
+    - '**/{*.c,*.cc,*.cpp,*.c++,*.cp,*.cxx,*.h,*.hpp}'
+
+gitlab-advanced-sast-cpp:
+  extends: .sast-analyzer
+  image:
+    name: "$[[ inputs.image_prefix ]]/clangsa:${SAST_ANALYZER_IMAGE_TAG}$[[ inputs.image_suffix ]]"
+  variables:
+    SAST_ANALYZER_IMAGE_TAG: 1
+    ADVANCED_SAST_PARTIAL_SCAN: "$[[ inputs.advanced_sast_partial_scan ]]"
+  rules:
+    - if: '"$[[ inputs.excluded_analyzers ]]" =~ /(^|[,[:space:]])gitlab-advanced-sast-cpp([,[:space:]]|$)/'
+      when: never
+    - if: '"$[[ inputs.run_advanced_sast_cpp ]]" != "true"'
+      when: never
+
+    # The following 3 blocks of rules define whether the job runs in a an *MR pipeline* or a *branch pipeline*
+    # when an MR exists. If the job has additional rules to observe they should be added in the blocks 1 and 3
+    # to cover both the *MR pipeline* and the *branch pipeline* workflows.
+
+    # 1. Run the job in an *MR* pipeline if MR pipelines are enabled and there's an open merge request.
+    - if: '"$[[ inputs.enable_mr_pipelines ]]" == "true" &&
+          $CI_PIPELINE_SOURCE == "merge_request_event" &&
+          $GITLAB_FEATURES =~ /\bsast_advanced\b/'
+      exists: !reference [ .gitlab-advanced-sast-exist-rules, exists ]
+    # 2. Don't run the job in a *branch pipeline* if *MR pipelines* are enabled and there's an open merge request.
+    - if: '"$[[ inputs.enable_mr_pipelines ]]" == "true" &&
+          $CI_OPEN_MERGE_REQUESTS'
+      when: never
+    # 3. Finally, run the job in a *branch pipeline* (When MR pipelines are disabled, or it is enabled but no open MRs exist for the branch).
+    - if: $CI_COMMIT_BRANCH &&
+        $GITLAB_FEATURES =~ /\bsast_advanced\b/
+      exists: !reference [.gitlab-advanced-sast-cpp-exist-rules, exists]
+

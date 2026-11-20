@@ -1,0 +1,119 @@
+# Pinned image tags live here and nowhere else. Bump a tag by editing this file.
+#
+# The four host ports stay overridable, because a local port conflict is machine
+# specific and GITLAB_HTTP_PORT is read by gitlab.rb as well as by the port
+# mapping: GITLAB_HTTP_PORT (8929), GITEA_HTTP_PORT (3000),
+# GITEA_SSH_PORT (22222), APP_HTTP_PORT (5080). Override one inline
+# (`GITEA_SSH_PORT=2223 docker compose up -d`) or put it in an untracked `.env`
+# next to this file, which Compose loads automatically.
+name: local-gitlab-ci
+
+services:
+  gitlab:
+    image: gitlab/gitlab-ee:19.5.5-ee.0
+    hostname: gitlab
+    shm_size: 256m
+    environment:
+      GITLAB_HTTP_PORT: ${GITLAB_HTTP_PORT:-8929}
+      GITLAB_OMNIBUS_CONFIG: "from_file('/config/gitlab.rb')"
+    ports:
+      - "127.0.0.1:${GITLAB_HTTP_PORT:-8929}:8929"
+    volumes:
+      - gitlab-config:/etc/gitlab
+      - gitlab-logs:/var/log/gitlab
+      - gitlab-data:/var/opt/gitlab
+      - ./gitlab:/config:ro
+    networks: [ci]
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8929/-/readiness?all=1"]
+      interval: 15s
+      timeout: 10s
+      start_period: 5m
+      retries: 60
+    restart: unless-stopped
+
+  gitea:
+    image: docker.gitea.com/gitea:28.3.0
+    # Seed the tracked INI, start Gitea, and create the local lab administrator
+    # on a fresh data volume. Gitea rewrites app.ini, so it remains read-only.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        mkdir -p /data/gitea/conf
+        test -f /data/gitea/conf/app.ini || cp /config/app.ini /data/gitea/conf/app.ini
+        /usr/bin/entrypoint &
+        gitea_pid=$$!
+        trap 'kill "$$gitea_pid" 2>/dev/null || true; wait "$$gitea_pid" 2>/dev/null || true' INT TERM
+        until wget -q --spider http://127.0.0.1:3000/api/healthz; do
+          if ! kill -0 "$$gitea_pid" 2>/dev/null; then
+            wait "$$gitea_pid"
+            exit 1
+          fi
+          sleep 2
+        done
+        if ! su-exec git /usr/local/bin/gitea --config /data/gitea/conf/app.ini admin user list | grep -Eq '^[[:space:]]*[0-9]+[[:space:]]+admin[[:space:]]'; then
+          su-exec git /usr/local/bin/gitea --config /data/gitea/conf/app.ini admin user create \
+            --username admin --password admin \
+            --email admin@example.test --admin --must-change-password=false
+        fi
+        wait "$$gitea_pid"
+    environment:
+      USER_UID: "1000"
+      USER_GID: "1000"
+      # Environment overrides are applied to the runtime INI on every start.
+      GITEA__server__ROOT_URL: http://localhost:${GITEA_HTTP_PORT:-3000}/
+      GITEA__server__SSH_PORT: ${GITEA_SSH_PORT:-22222}
+      GITEA__security__ALLOWED_HOST_LIST: gitlab:${GITLAB_HTTP_PORT:-8929}, private:${GITLAB_HTTP_PORT:-8929}
+    ports:
+      - "127.0.0.1:${GITEA_HTTP_PORT:-3000}:3000"
+      - "127.0.0.1:${GITEA_SSH_PORT:-22222}:22"
+    volumes:
+      - gitea-data:/data
+      - ./gitea/app.ini:/config/app.ini:ro
+    networks: [ci]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  # Start this service only after registering it with a token from the GitLab UI.
+  runner:
+    image: gitlab/gitlab-runner:alpine-v19.5.3
+    volumes:
+      - runner-config:/etc/gitlab-runner
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks: [ci]
+    restart: unless-stopped
+
+  # Optional runtime check for downloaded publish artifacts.
+  sample-app:
+    profiles: [verify]
+    image: mcr.microsoft.com/dotnet/sdk:10.0-alpine
+    command: ["dotnet", "/app/Sample.Api.dll"]
+    environment:
+      ASPNETCORE_URLS: http://0.0.0.0:8080
+    ports:
+      - "127.0.0.1:${APP_HTTP_PORT:-5080}:8080"
+    volumes:
+      - ../evidence/publish:/app:ro
+    networks: [ci]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+networks:
+  ci:
+    name: local-gitlab-ci
+
+volumes:
+  gitea-data:
+  gitlab-config:
+  gitlab-logs:
+  gitlab-data:
+  runner-config:

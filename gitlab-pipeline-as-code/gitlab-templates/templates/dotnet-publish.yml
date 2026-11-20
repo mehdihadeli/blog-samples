@@ -1,12 +1,47 @@
-include:
-  - remote: 'http://gitea:3000/admin/gitlab-templates/raw/branch/main/templates/dotnet-base.yml'
+# CI/CD component: dotnet-publish.
+#
+# Publishes the already-built assembly into a self-contained output directory
+# and records the source revision the git-clone component resolved.
+spec:
+  description: Publish a prebuilt .NET project and record its source revision.
+  inputs:
+    stage:
+      default: publish
+      description: The stage to run the .NET publish
+    dotnet_version:
+      default: "10.0-alpine"
+      description: ".NET SDK image tag, for example 8.0, 10.0, or 10.0-alpine"
+    project_path:
+      default: "."
+      description: "Path to the application .csproj"
+    configuration:
+      default: "Release"
+      description: "Build configuration (Debug/Release)"
+    output_path:
+      default: publish
+      description: "Directory, relative to the project directory, for the published output"
+---
 
-.dotnet-publish:
-  extends: .dotnet
+dotnet-publish:
+  stage: $[[ inputs.stage ]]
+  image: mcr.microsoft.com/dotnet/sdk:$[[ inputs.dotnet_version ]]
+  variables:
+    NUGET_PACKAGES: "$CI_PROJECT_DIR/.nuget/packages"
+    DOTNET_NOLOGO: "true"
+    DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+  cache:
+    key: "$CI_COMMIT_REF_SLUG-dotnet"
+    paths:
+      - .nuget/packages/
+      - "**/obj/"
   script:
-    - dotnet restore "$DOTNET_APP_PROJECT"
-    - dotnet publish "$DOTNET_APP_PROJECT" --configuration Release --no-build --no-restore --output publish
-    - echo "Published Gitea application; exact revision recorded in source.json"
+    - dotnet restore $[[ inputs.project_path ]]
+    - dotnet publish $[[ inputs.project_path ]] --configuration $[[ inputs.configuration ]] --no-build --no-restore --output $[[ inputs.output_path ]]
+    # GIT_CLONE_COMMIT arrives through the clone job's dotenv report, which GitLab
+    # forwards to every later stage that downloads its artifacts.
+    - printf '%s' "${GIT_CLONE_COMMIT:-unknown}" > source-commit.txt
   artifacts:
-    expire_in: 1 day
-    paths: [publish/, source.json]
+    expire_in: 1 week
+    paths:
+      - $[[ inputs.output_path ]]/
+      - source-commit.txt

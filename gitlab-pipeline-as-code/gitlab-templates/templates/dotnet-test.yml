@@ -1,12 +1,47 @@
-include:
-  - remote: 'http://gitea:3000/admin/gitlab-templates/raw/branch/main/templates/dotnet-base.yml'
+# CI/CD component: dotnet-test.
+#
+# Runs the already-built assembly with --no-build so the pipeline tests exactly
+# what dotnet-build produced. The TRX result directory is kept even on failure.
+spec:
+  description: Test a prebuilt .NET project and publish its TRX results.
+  inputs:
+    stage:
+      default: test
+      description: The stage to run the .NET tests
+    dotnet_version:
+      default: "10.0-alpine"
+      description: ".NET SDK image tag, for example 8.0, 10.0, or 10.0-alpine"
+    project_path:
+      default: "."
+      description: "Path to the test .csproj"
+    configuration:
+      default: "Release"
+      description: "Build configuration (Debug/Release)"
+    results_path:
+      default: TestResults
+      description: "Directory, relative to the project directory, for test results"
+    log_file_name:
+      default: tests.trx
+      description: "TRX file name inside the results directory"
+---
 
-.dotnet-test:
-  extends: .dotnet
+dotnet-test:
+  stage: $[[ inputs.stage ]]
+  image: mcr.microsoft.com/dotnet/sdk:$[[ inputs.dotnet_version ]]
+  variables:
+    NUGET_PACKAGES: "$CI_PROJECT_DIR/.nuget/packages"
+    DOTNET_NOLOGO: "true"
+    DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+  cache:
+    key: "$CI_COMMIT_REF_SLUG-dotnet"
+    paths:
+      - .nuget/packages/
+      - "**/obj/"
   script:
-    - dotnet restore "$DOTNET_TEST_PROJECT"
-    - dotnet test "$DOTNET_TEST_PROJECT" --configuration Release --no-build --no-restore --logger "trx;LogFileName=tests.trx" --results-directory "$CI_PROJECT_DIR/TestResults"
+    - dotnet restore $[[ inputs.project_path ]]
+    - dotnet test $[[ inputs.project_path ]] --configuration $[[ inputs.configuration ]] --no-build --no-restore --logger "trx;LogFileName=$[[ inputs.log_file_name ]]" --results-directory "$CI_PROJECT_DIR/$[[ inputs.results_path ]]"
   artifacts:
     when: always
-    expire_in: 1 day
-    paths: [TestResults/]
+    expire_in: 1 week
+    paths:
+      - "$[[ inputs.results_path ]]/"

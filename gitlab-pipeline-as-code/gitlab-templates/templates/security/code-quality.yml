@@ -1,0 +1,78 @@
+spec:
+  inputs:
+    stage:
+      default: test
+    image:
+      default: "$CI_TEMPLATE_REGISTRY_HOST/gitlab-org/ci-cd/codequality:0.96.0-gitlab.3"
+    debug:
+      default: ""
+    allow_failure:
+      type: boolean
+      default: true
+---
+
+code_quality:
+  stage: $[[ inputs.stage ]]
+  image: docker:29.1.4
+  allow_failure: $[[ inputs.allow_failure ]]
+  services:
+    - name: 'docker:29.1.4-dind'
+      command: ['--tls=false', '--host=tcp://0.0.0.0:2375']
+  variables:
+    DOCKER_DRIVER: overlay2
+    DOCKER_TLS_CERTDIR: ""
+  needs: []
+  script:
+    - export SOURCE_CODE=${SOURCE_CODE:-$PWD}
+    - |
+      if ! docker info &>/dev/null; then
+        if [ -z "$DOCKER_HOST" ] && [ -n "$KUBERNETES_PORT" ]; then
+          export DOCKER_HOST='tcp://localhost:2375'
+        fi
+      fi
+    - | # this is required to avoid undesirable reset of Docker image ENV variables being set on build stage
+      function propagate_env_vars() {
+        CURRENT_ENV=$(printenv)
+
+        for VAR_NAME; do
+          echo $CURRENT_ENV | grep "${VAR_NAME}=" > /dev/null && echo "--env $VAR_NAME "
+        done
+      }
+    - |
+      function codeclimate_debug_var() {
+        if [ -n "$[[ inputs.debug ]]" ]; then
+          echo "--env CODECLIMATE_DEBUG=1"
+        fi
+      }
+    - |
+      if [ -n "$CODECLIMATE_REGISTRY_USERNAME" ] && [ -n "$CODECLIMATE_REGISTRY_PASSWORD" ] && [ -n "$CODECLIMATE_PREFIX" ]; then
+        CODECLIMATE_REGISTRY=${CODECLIMATE_PREFIX%%/*}
+        docker login "$CODECLIMATE_REGISTRY" --username "$CODECLIMATE_REGISTRY_USERNAME" --password "$CODECLIMATE_REGISTRY_PASSWORD"
+      fi
+    - docker pull --quiet "$[[ inputs.image ]]"
+    - |
+      docker run --rm \
+        $(propagate_env_vars \
+          SOURCE_CODE \
+          TIMEOUT_SECONDS \
+          CODECLIMATE_DEV \
+          REPORT_STDOUT \
+          REPORT_FORMAT \
+          ENGINE_MEMORY_LIMIT_BYTES \
+          CODECLIMATE_PREFIX \
+          CODECLIMATE_REGISTRY_USERNAME \
+          CODECLIMATE_REGISTRY_PASSWORD \
+        ) \
+        $(codeclimate_debug_var) \
+        --volume "$PWD":/code \
+        --volume /var/run/docker.sock:/var/run/docker.sock \
+        "$[[ inputs.image ]]" /code
+  artifacts:
+    reports:
+      codequality: gl-code-quality-report.json
+    expire_in: 1 week
+  dependencies: []
+  rules:
+    - if: '$CODE_QUALITY_DISABLED'
+      when: never
+    - if: '$CI_COMMIT_TAG || $CI_COMMIT_BRANCH'
