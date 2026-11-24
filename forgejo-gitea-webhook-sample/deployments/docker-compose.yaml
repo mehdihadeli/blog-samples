@@ -1,0 +1,178 @@
+name: gitea-actions
+
+# Seed the tracked INI into the data volume once, start Gitea, and create the
+# local lab administrator after the health endpoint responds. Used by the CI
+# instance; the Forgejo instance has its own hook because the images differ.
+x-gitea-bootstrap: &gitea-bootstrap
+  - /bin/sh
+  - -c
+  - |
+    set -eu
+    mkdir -p /data/gitea/conf
+    test -f /data/gitea/conf/app.ini || cp /config/app.ini /data/gitea/conf/app.ini
+    /usr/bin/entrypoint &
+    gitea_pid=$$!
+    trap 'kill "$$gitea_pid" 2>/dev/null || true; wait "$$gitea_pid" 2>/dev/null || true' INT TERM
+    until wget -q --spider http://127.0.0.1:3000/api/healthz; do
+      if ! kill -0 "$$gitea_pid" 2>/dev/null; then
+        wait "$$gitea_pid"
+        exit 1
+      fi
+      sleep 2
+    done
+    if ! su-exec git /usr/local/bin/gitea --config /data/gitea/conf/app.ini admin user list | grep -Eq '^[[:space:]]*[0-9]+[[:space:]]+admin[[:space:]]'; then
+      su-exec git /usr/local/bin/gitea --config /data/gitea/conf/app.ini admin user create \
+        --username admin --password admin \
+        --email admin@example.test --admin --must-change-password=false
+    fi
+    wait "$$gitea_pid"
+
+# Same idea for Forgejo, with three differences that matter:
+#   * the CLI is `forgejo` and the image has no `su-exec`, so commands run
+#     through `s6-setuidgid git`
+#   * Forgejo reserves the `admin` username, so the lab account is `forgejo`
+#   * `/usr/bin/entrypoint` supervises Forgejo with s6, and `/data/gitea` is
+#     still the data root, so the config path is unchanged
+x-forgejo-bootstrap: &forgejo-bootstrap
+  - /bin/sh
+  - -c
+  - |
+    set -eu
+    mkdir -p /data/gitea/conf
+    test -f /data/gitea/conf/app.ini || cp /config/app.ini /data/gitea/conf/app.ini
+    /usr/bin/entrypoint &
+    forgejo_pid=$$!
+    trap 'kill "$$forgejo_pid" 2>/dev/null || true; wait "$$forgejo_pid" 2>/dev/null || true' INT TERM
+    until wget -q --spider http://127.0.0.1:3000/api/healthz; do
+      if ! kill -0 "$$forgejo_pid" 2>/dev/null; then
+        wait "$$forgejo_pid"
+        exit 1
+      fi
+      sleep 2
+    done
+    if ! s6-setuidgid git forgejo admin user list | grep -Eq '^[[:space:]]*[0-9]+[[:space:]]+forgejo[[:space:]]'; then
+      s6-setuidgid git forgejo admin user create \
+        --username forgejo --password forgejo \
+        --email forgejo@example.test --admin --must-change-password=false
+    fi
+    wait "$$forgejo_pid"
+
+services:
+  # Instance #1: Forgejo. Hosts the APPLICATION SOURCE only
+  # (`forgejo/dotnet-sample`). No runner is attached and Actions are disabled.
+  # This is the instance that can later be replaced by GitLab; it only needs to
+  # send push webhooks.
+  forgejo:
+    image: ${FORGEJO_IMAGE:-codeberg.org/forgejo/forgejo:17}
+    hostname: forgejo
+    entrypoint: *forgejo-bootstrap
+    # [server] settings (ROOT_URL, SSH_PORT, ...) come from ./forgejo/app.ini,
+    # which the bootstrap hook seeds into /data/gitea/conf on first start.
+    environment:
+      USER_UID: "1000"
+      USER_GID: "1000"
+      # The push webhook targets `bridge` on the compose network (a non-public
+      # address). Forgejo keeps this allow-list in [webhook]; its builtin
+      # `private` range covers the compose network.
+      FORGEJO__webhook__ALLOWED_HOST_LIST: ${WEBHOOK_ALLOWED_HOSTS:-private}
+    ports:
+      - "127.0.0.1:${FORGEJO_HTTP_PORT:-3010}:3000"
+    volumes:
+      - forgejo-data:/data
+      - ./forgejo/app.ini:/config/app.ini:ro
+    networks: [ci]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  # Gitea instance #2: hosts the CI repositories (`admin/dotnet-ci` and
+  # `admin/admin-gitea-templates` together, so `workflow_call` works) and runs
+  # Gitea Actions via the attached `runner` service.
+  gitea-app:
+    image: ${GITEA_IMAGE:-docker.gitea.com/gitea:28.3.0}
+    hostname: gitea-app
+    entrypoint: *gitea-bootstrap
+    # [server] settings (ROOT_URL, SSH_PORT, ...) come from ./gitea-app/app.ini,
+    # which the bootstrap hook seeds into /data/gitea/conf on first start.
+    environment:
+      USER_UID: "1000"
+      USER_GID: "1000"
+      # Keeps the outbound-webhook policy consistent with the other instance.
+      GITEA__security__ALLOWED_HOST_LIST: ${WEBHOOK_ALLOWED_HOSTS:-private}
+    ports:
+      - "127.0.0.1:${GITEA_APP_HTTP_PORT:-3110}:3000"
+    volumes:
+      - gitea-app-data:/data
+      - ./gitea-app/app.ini:/config/app.ini:ro
+    networks: [ci]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  # Gitea act runner for the application instance. Start it only after you have
+  # written GITEA_RUNNER_REGISTRATION_TOKEN into a local .env (see README).
+  runner:
+    image: ${GITEA_RUNNER_IMAGE:-docker.gitea.com/gitea/runner:latest}
+    depends_on:
+      gitea-app:
+        condition: service_healthy
+    environment:
+      GITEA_INSTANCE_URL: http://gitea-app:3000
+      GITEA_RUNNER_REGISTRATION_TOKEN: ${GITEA_RUNNER_REGISTRATION_TOKEN:-}
+      GITEA_RUNNER_NAME: gitea-actions-runner
+      # Two labels:
+      #   ubuntu-latest -> upstream act image (node + bash + git preinstalled),
+      #                    so official GitHub JavaScript actions such as
+      #                    actions/checkout and actions/setup-dotnet can run.
+      #                    No custom image is built.
+      #   dotnet        -> the .NET SDK image, kept for shell-only jobs.
+      GITEA_RUNNER_LABELS: "ubuntu-latest:docker://${UBUNTU_IMAGE:-catthehacker/ubuntu:act-latest},dotnet:docker://${DOTNET_IMAGE:-mcr.microsoft.com/dotnet/sdk:10.0-alpine}"
+      CONFIG_FILE: /data/config.yaml
+    volumes:
+      - runner-data:/data
+      - ./runner/config.yaml:/data/config.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks: [ci]
+    restart: unless-stopped
+
+  # Cross-instance webhook bridge. Gitea cannot trigger a workflow on another
+  # Gitea instance, so the source instance delivers its push webhook here and
+  # this service calls `workflow_dispatch` on the application instance.
+  bridge:
+    build: ./bridge
+    image: gitea-hook/bridge:local
+    hostname: bridge
+    depends_on:
+      gitea-app:
+        condition: service_healthy
+    environment:
+      GITEA_URL: http://gitea-app:3000
+      TARGET_REPO: ${BRIDGE_TARGET_REPO:-admin/dotnet-ci}
+      TARGET_WORKFLOW: ${BRIDGE_TARGET_WORKFLOW:-ci.yml}
+      TARGET_REF: ${BRIDGE_TARGET_REF:-main}
+      SOURCE_BRANCH: ${BRIDGE_SOURCE_BRANCH:-main}
+      GITEA_TOKEN: ${GITEA_CI_TOKEN:-}
+    ports:
+      - "127.0.0.1:${BRIDGE_HTTP_PORT:-3210}:8080"
+    networks: [ci]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+networks:
+  ci:
+    name: gitea-actions
+
+volumes:
+  forgejo-data:
+  gitea-app-data:
+  runner-data:

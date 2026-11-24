@@ -1,0 +1,22 @@
+# Runner process logging.
+log:
+  level: info
+
+runner:
+  # Registration state lives next to this config, in /data.
+  file: .runner
+  # One job at a time keeps the local lab small and deterministic.
+  capacity: 1
+  # Job environment shared by every .NET step.
+  envs:
+    DOTNET_NOLOGO: "true"
+    DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+
+container:
+  # Job containers join the compose network so they can resolve `gitea-app`
+  # (CI instance) and `forgejo` (the source instance being checked out).
+  network: gitea-actions
+  privileged: false
+  # The runner creates sibling job containers through the host Docker socket
+  # mounted by compose, but does not mount that socket into the jobs.
+  docker_host: "-"

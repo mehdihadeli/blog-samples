@@ -1,0 +1,41 @@
+name: dotnet-build-test
+description: >-
+  Set up the .NET SDK (preinstalled in the `dotnet` job image), restore with a
+  workspace-local NuGet package cache, then build and test a project.
+  shell: sh only — no Node. Cross-run caching needs a Gitea [cache] server.
+
+inputs:
+  project:
+    description: Path to the test project/solution to build and test.
+    required: false
+    default: .
+  configuration:
+    description: Build configuration (Debug/Release).
+    required: false
+    default: Release
+  results_directory:
+    description: Directory for the TRX test results.
+    required: false
+    default: TestResults
+
+runs:
+  using: composite
+  steps:
+    - name: Set up .NET SDK
+      shell: sh
+      run: |
+        set -eu
+        dotnet --version
+        dotnet nuget locals all --list
+
+    - name: Restore (NuGet cache)
+      shell: sh
+      run: dotnet restore "${{ inputs.project }}" --packages .nuget/packages
+
+    - name: Build
+      shell: sh
+      run: dotnet build "${{ inputs.project }}" --configuration "${{ inputs.configuration }}" --no-restore
+
+    - name: Test
+      shell: sh
+      run: dotnet test "${{ inputs.project }}" --configuration "${{ inputs.configuration }}" --no-build --logger "trx;LogFileName=tests.trx" --results-directory "${{ inputs.results_directory }}"

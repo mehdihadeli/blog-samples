@@ -1,0 +1,26 @@
+name: dotnet-publish
+description: Publish a prebuilt .NET project and record the source revision.
+
+inputs:
+  project:
+    description: Path to the application .csproj.
+    required: false
+    default: .
+  configuration:
+    description: Build configuration (Debug/Release).
+    required: false
+    default: Release
+  output:
+    description: Output directory for the published application.
+    required: false
+    default: publish
+
+runs:
+  using: composite
+  steps:
+    - name: Publish
+      shell: sh
+      run: dotnet publish "${{ inputs.project }}" --configuration "${{ inputs.configuration }}" --no-build --no-restore --output "${{ inputs.output }}"
+    - name: Record source revision
+      shell: sh
+      run: printf '%s' "$GITHUB_SHA" > source-commit.txt

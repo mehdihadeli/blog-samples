@@ -1,0 +1,11 @@
+.env
+evidence/
+**/bin/
+**/obj/
+**/__pycache__/
+!deployments/forgejo/
+!deployments/forgejo/app.ini
+!deployments/gitea-app/
+!deployments/gitea-app/app.ini
+!deployments/runner/
+!deployments/runner/config.yaml

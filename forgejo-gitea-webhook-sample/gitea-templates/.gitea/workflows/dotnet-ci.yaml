@@ -1,0 +1,116 @@
+# Reusable .NET CI pipeline (workflow_call).
+#
+# Lives on the CI instance alongside the `dotnet-ci` repository that consumes
+# it. Gitea resolves `workflow_call` server-side on the same instance, so this
+# cross-repository reference works:
+#
+#     jobs:
+#       ci:
+#         uses: admin/admin-gitea-templates/.gitea/workflows/dotnet-ci.yaml@main
+#
+# It must sit under `.gitea/workflows` (or `.github/workflows`) or Gitea will
+# not detect it as a workflow.
+#
+# The application source is cloned from the *other* instance, which is the one
+# that can later be swapped for GitLab.
+name: Reusable dotnet CI
+
+on:
+  workflow_call:
+    inputs:
+      source_server_url:
+        description: Base URL of the instance that hosts the application source.
+        type: string
+        required: true
+      source_repository:
+        description: Application source repository as `owner/repo`.
+        type: string
+        required: true
+      project:
+        description: Application project to publish.
+        type: string
+        default: application/src/Sample.Api.csproj
+      test_project:
+        description: Test project to build and test.
+        type: string
+        default: application/tests/Sample.Api.Tests.csproj
+      configuration:
+        description: Build configuration (Debug/Release).
+        type: string
+        default: Release
+      dotnet_version:
+        description: .NET SDK version to install.
+        type: string
+        default: 10.0.x
+    secrets:
+      SOURCE_TOKEN:
+        description: >-
+          Credential for the source instance. `actions/checkout` requires a
+          non-empty token, and the source instance is a different instance, so
+          a token scoped to it must be supplied by the caller.
+        required: true
+
+jobs:
+  ci:
+    # `ubuntu-latest` maps to the upstream act image
+    # (catthehacker/ubuntu:act-latest), which ships Node + bash + git, so the
+    # official JavaScript actions below can execute. No custom image is built.
+    runs-on: ubuntu-latest
+    env:
+      # That minimal image ships no ICU libraries, so the .NET CLI aborts with
+      # "Couldn't find a valid ICU package installed". Invariant globalization
+      # avoids that without building a custom image. It must be set HERE: a
+      # caller's job-level `env:` does not propagate into a called workflow.
+      DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: "1"
+      DOTNET_NOLOGO: "true"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+    steps:
+      # Official action: check out the application source into `application/`.
+      # The source lives on the other instance, so `github-server-url` points
+      # `actions/checkout` at it (`repository` must be `owner/repo`, not a URL).
+      - name: Checkout application source
+        uses: https://github.com/actions/checkout@v4
+        with:
+          repository: ${{ inputs.source_repository }}
+          github-server-url: ${{ inputs.source_server_url }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+          ref: main
+          path: application
+          fetch-depth: 1
+
+      # Official action: install the requested .NET SDK.
+      - name: Set up .NET SDK
+        uses: https://github.com/actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnet_version }}
+
+      # Official action: cache the NuGet global-packages folder between runs.
+      - name: Cache NuGet packages
+        uses: https://github.com/actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Verify .NET SDK and NuGet
+        shell: bash
+        run: |
+          set -eu
+          dotnet --version
+          dotnet nuget locals all --list
+
+      # Our composite action: restore (cached), build and test.
+      - name: Build and test
+        uses: http://gitea-app:3000/admin/admin-gitea-templates/actions/dotnet-build-test@main
+        with:
+          project: ${{ inputs.test_project }}
+          configuration: ${{ inputs.configuration }}
+
+      # Our composite action: publish and record the source revision.
+      - name: Publish
+        uses: http://gitea-app:3000/admin/admin-gitea-templates/actions/dotnet-publish@main
+        with:
+          project: ${{ inputs.project }}
+          configuration: ${{ inputs.configuration }}
+          output: application/publish

@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  workflow_dispatch:
+
+jobs:
+  ci:
+    # Reusable workflow hosted in the `admin-gitea-templates` repository on this
+    # SAME instance (3110). Gitea resolves `workflow_call` server-side, so the
+    # target must live on the same instance as the caller — a cross-repository
+    # reference on one instance is fine, a cross-INSTANCE one is not.
+    uses: admin/admin-gitea-templates/.gitea/workflows/dotnet-ci.yaml@main
+    # Token for the source-control instance, where the application repository
+    # lives. Stored as a repository secret on this repository.
+    secrets:
+      SOURCE_TOKEN: ${{ secrets.SOURCE_TOKEN }}
+    with:
+      source_server_url: http://forgejo:3000
+      source_repository: forgejo/dotnet-sample
+      project: application/src/Sample.Api.csproj
+      test_project: application/tests/Sample.Api.Tests.csproj
+      configuration: Release
